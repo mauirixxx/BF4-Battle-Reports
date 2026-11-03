@@ -31,38 +31,36 @@ def main():
                         cur.execute("""SELECT persona_workers,report_workers,paused
                             FROM bf4br_node_controls WHERE node_name=%s""",(node,))
                         persona_target,report_target,paused=cur.fetchone()
-                target=0 if paused else persona_target
-                # Don't count draining processes as available capacity.
-                for pid,record in list(children.items()):
-                    process,draining=record
+                for pid,(process,kind,draining) in list(children.items()):
                     if process.poll() is not None:
                         LOG.info("worker exited pid=%s status=%s",pid,process.returncode)
                         del children[pid]
-                running=[pid for pid,(_,draining) in children.items() if not draining]
-                while len(running)>target:
-                    pid=running.pop()
-                    process,_=children[pid]
-                    process.terminate()
-                    children[pid]=(process,True)
-                    LOG.info("draining persona worker pid=%s",pid)
-                while len(running)<target:
-                    serial+=1
-                    env={**os.environ,"BF4BR_WORKER_ID":f"{node}-persona-{serial}"}
-                    p=subprocess.Popen([sys.executable,"-m","bf4br.persona_worker"],env=env)
-                    children[p.pid]=(p,False)
-                    running.append(p.pid)
-                    LOG.info("started persona worker pid=%s",p.pid)
-                if report_target:
-                    LOG.warning("report_workers=%s configured but report worker is not implemented",report_target)
+                for kind,desired in (("persona",persona_target),("report",report_target)):
+                    target=0 if paused else desired
+                    running=[pid for pid,(_,k,draining) in children.items()
+                             if k==kind and not draining]
+                    while len(running)>target:
+                        pid=running.pop()
+                        process,_,_=children[pid]
+                        process.terminate()
+                        children[pid]=(process,kind,True)
+                        LOG.info("draining %s worker pid=%s",kind,pid)
+                    while len(running)<target:
+                        serial+=1
+                        env={**os.environ,"BF4BR_WORKER_ID":f"{node}-{kind}-{serial}"}
+                        process=subprocess.Popen([sys.executable,"-m",f"bf4br.{kind}_worker"],env=env)
+                        children[process.pid]=(process,kind,False)
+                        running.append(process.pid)
+                        LOG.info("started %s worker pid=%s",kind,process.pid)
             except (psycopg.Error,OSError):
                 LOG.exception("supervisor control loop failed; existing workers unchanged")
             time.sleep(3)
     LOG.info("supervisor stopping; draining children")
-    for p,_ in children.values():
+    for p,_,_ in children.values():
         if p.poll() is None:
             p.terminate()
     deadline=time.monotonic()+45
-    for p,_ in children.values():
+    for p,_,_ in children.values():
         if p.poll() is None:
             try:
                 p.wait(timeout=max(0.1,deadline-time.monotonic()))
