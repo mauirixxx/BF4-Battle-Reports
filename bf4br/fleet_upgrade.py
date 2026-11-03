@@ -33,6 +33,18 @@ def release():
 
 
 def stage(version, sha):
+    # Refuse to overwrite an already-published version directory.
+    # Reuse only an installation carrying the exact expected SHA marker.
+    check = subprocess.run(
+        SSH + [f"test -f /opt/bf4br-releases/{version}/.bf4br-release-sha && "
+               f"test \\"$(cat /opt/bf4br-releases/{version}/.bf4br-release-sha)\\" = {sha}"],
+        capture_output=True, text=True, timeout=15)
+    if check.returncode == 0:
+        return
+    exists = subprocess.run(SSH + [f"test -e /opt/bf4br-releases/{version}"],
+                            timeout=15)
+    if exists.returncode == 0:
+        raise RuntimeError("release directory already exists without matching SHA; refusing overwrite")
     # git archive reads the verified commit object, never mutable main.
     run(["git", "-C", REPO, "fetch", "--no-tags", "origin", sha],
         stdout=subprocess.DEVNULL)
