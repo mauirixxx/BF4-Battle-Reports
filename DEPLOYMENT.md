@@ -98,3 +98,7 @@ All three tables were independently verified in `information_schema.columns` aft
 - Access is currently one-way: `reports` to the other machines, not an all-to-all SSH mesh. Do not distribute the private key to targets.
 - The `bf4br-deployer.service` still runs as `postgres` in **observation-only mode**. Its service account does **not** have this root SSH private key. Automatic deployments remain disabled pending a scoped deployment identity, restricted sudo/remote commands, and tested rollback.
 - To revoke access, remove the `bf4br-reports-deployment` authorized key entry from each target and retire the corresponding private key on `reports`.
+
+### DNS host expansion (2026-11-03)
+
+Added four verified DNS nodes: `mak-dns-01` (`192.168.10.87`), `mak-dns-02` (`192.168.10.88`), `hnl-dns-01` (`192.168.5.87`), and `kah-dns-01` (`192.168.21.87`). Installed the same source-restricted public key in root authorized_keys; pinned their directly obtained Ed25519 host keys in `/root/.ssh/bf4br_known_hosts`; added SSH aliases to `/root/.ssh/config`; verified passwordless `ssh <hostname> hostname` for all four. Fleet access now covers **21 remote targets plus reports**. `rnt-dns-01` was not in the connected device inventory and has not been enrolled. This change does not enable automated deployment or change DNS services.
