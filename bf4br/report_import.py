@@ -14,11 +14,22 @@ def validate(payload,platform,rid):
         raise ValueError("missing player roster")
     people=[]
     for item in roster.values():
+        if not isinstance(item,dict):
+            raise ValueError("invalid roster entry")
+        persona=item.get("persona")
+        if persona is None:
+            # Battlelog sometimes omits the identity object for a roster slot.
+            # Preserve the raw archive but do not invent a player name.
+            continue
+        if not isinstance(persona,dict):
+            raise ValueError("invalid persona object")
         pid=int(item["personaId"])
-        name=item["persona"]["personaName"]
+        name=persona.get("personaName")
         if pid<=0 or not isinstance(name,str) or not name:
             raise ValueError("invalid player identity")
         people.append((pid,name))
+    if not people:
+        raise ValueError("no importable player identities")
     if len({pid for pid,_ in people})!=len(people):
         raise ValueError("duplicate persona IDs")
     return server,people
