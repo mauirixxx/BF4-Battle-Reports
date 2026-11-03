@@ -107,7 +107,7 @@ def deploy(version, sha):
                 if not service_active():
                     raise RuntimeError("supervisor failed health check")
             STATE.write_text(json.dumps({"version": version, "sha": sha,
-                                         "previous": previous}) + "\\n")
+                                         "previous": previous}) + "\n")
             print(json.dumps({"status": "deployed", "version": version,
                               "sha": sha, "previous": previous}))
         except Exception:
