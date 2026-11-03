@@ -31,5 +31,3 @@ class ReportStoreIntegration(unittest.TestCase):
             with conn.cursor() as cur:
                 cur.execute("SELECT count(*) FROM battle_report_raw")
                 self.assertEqual(cur.fetchone()[0],1)
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
