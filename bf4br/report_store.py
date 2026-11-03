@@ -2,7 +2,7 @@
 import json
 
 def archive(conn, platform, report_id, token, payload):
-    if not isinstance(payload, dict) or payload.get("id") != report_id or payload.get("platform") != platform:
+    if not isinstance(payload, dict) or int(payload.get("id",0)) != report_id or int(payload.get("platform",0)) != platform:
         raise ValueError("report identity mismatch")
     server = payload.get("gameServer")
     players = payload.get("players")
