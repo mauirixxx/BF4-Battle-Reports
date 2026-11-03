@@ -19,7 +19,7 @@ RELEASES = ROOT / "bf4br-releases"
 STATE = ROOT / "bf4br-release-state.json"
 LOCK = Path("/run/lock/bf4br-release.lock")
 SERVICE = "bf4br-supervisor.service"
-VERSION = re.compile(r"v[0-9]+\\.[0-9]+\\.[0-9]+\\Z")
+VERSION = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+\Z")
 
 
 def run(*args, timeout=90):
