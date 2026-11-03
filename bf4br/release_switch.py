@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -28,6 +29,31 @@ def run(*args, timeout=90):
 
 def service_active():
     return subprocess.run(["systemctl", "is-active", "--quiet", SERVICE]).returncode == 0
+
+
+
+def healthy():
+    """Check supervisor process, systemd state, and PostgreSQL connectivity."""
+    if not service_active():
+        return False
+    result = run("systemctl", "show", SERVICE,
+                 "--property=MainPID", "--value", timeout=10)
+    pid = int(result.stdout.strip() or "0")
+    if pid <= 1 or not Path(f"/proc/{pid}").exists():
+        return False
+    environment = run("systemctl", "show", SERVICE,
+                      "--property=Environment", "--value", timeout=10).stdout
+    variables = dict(item.split("=", 1) for item in shlex.split(environment)
+                     if "=" in item)
+    dsn = variables.get("BF4BR_DSN")
+    if not dsn:
+        return False
+    # No SQL writes; the connection check must use the collector's own DSN.
+    from psycopg import connect
+    with connect(dsn, connect_timeout=5) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            return cur.fetchone() == (1,)
 
 
 def installed():
@@ -104,8 +130,8 @@ def deploy(version, sha):
             run("systemctl", "start", SERVICE, timeout=45)
             for _ in range(12):
                 time.sleep(2)
-                if not service_active():
-                    raise RuntimeError("supervisor failed health check")
+                if not healthy():
+                    raise RuntimeError("supervisor or database failed health check")
             STATE.write_text(json.dumps({"version": version, "sha": sha,
                                          "previous": previous}) + "\n")
             print(json.dumps({"status": "deployed", "version": version,
@@ -113,8 +139,8 @@ def deploy(version, sha):
         except Exception:
             restore(previous)
             run("systemctl", "restart", SERVICE, timeout=75)
-            if not service_active():
-                raise RuntimeError("ROLLBACK FAILED: supervisor not active")
+            if not healthy():
+                raise RuntimeError("ROLLBACK FAILED: supervisor or database unhealthy")
             raise
 
 
