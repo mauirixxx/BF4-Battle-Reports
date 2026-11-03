@@ -1,0 +1,19 @@
+[Unit]
+Description=BF4BR bounded persona and report queue feeder
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=postgres
+WorkingDirectory=/opt/bf4br
+Environment="BF4BR_DSN=dbname=bf4_battle_reports user=postgres"
+ExecStart=/opt/bf4br/.venv/bin/python -m bf4br.feeder --interval 60
+Restart=on-failure
+RestartSec=15
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,10 +1,11 @@
-"""Single-node release coordinator; opt-in, release-only, fail-closed.
+"""Database-discovered sequential release coordinator; fail-closed.
 
-Runs on reports as root with its dedicated pinned-host-key SSH configuration.
+Runs on the BF4BR database host as root with pinned-host-key SSH.
 No action is taken unless --deploy is supplied and a published stable GitHub
-release matches the explicitly configured canary host.
+release is published and eligible.
 """
 import argparse
+import re
 import fcntl
 import json
 import os
@@ -16,11 +17,9 @@ import time
 
 from bf4br.release_coordinator import latest_release, tag_sha
 
-HOST = "hnl-01"
 LOCK = Path("/run/lock/bf4br-fleet-deploy.lock")
 STATE = Path("/var/lib/bf4br-deployer/approved.json")
 REPO = "/opt/bf4br"
-SSH = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", HOST]
 
 
 def run(args, **kwargs):
@@ -32,7 +31,28 @@ def release():
     return info["tag_name"], tag_sha(info["tag_name"])
 
 
-def stage(version, sha):
+def registered_hosts():
+    """Only registered collector nodes; never deploy to the database coordinator."""
+    query = ("import psycopg,json; "
+             "c=psycopg.connect('dbname=bf4_battle_reports user=postgres'); "
+             "cur=c.cursor(); "
+             "cur.execute(\"SELECT node_name FROM bf4br_node_controls "
+             "WHERE node_name NOT IN ('reports','rnt-reports') "
+             "AND (persona_workers > 0 OR report_workers > 0) "
+             "ORDER BY node_name\"); "
+             "print(json.dumps([r[0] for r in cur.fetchall()]))")
+    output = subprocess.check_output(
+        ['runuser','-u','postgres','--',REPO+'/.venv/bin/python','-c',query],
+        text=True, timeout=15)
+    hosts = json.loads(output)
+    for host in hosts:
+        if not re.fullmatch(r'[a-z][a-z0-9-]{0,62}', host):
+            raise ValueError(f'unsafe registered hostname: {host!r}')
+    return hosts
+
+
+def stage(version, sha, host):
+    SSH = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", host]
     # Refuse to overwrite an already-published version directory.
     # Reuse only an installation carrying the exact expected SHA marker.
     check = subprocess.run(
@@ -80,28 +100,28 @@ def stage(version, sha):
     run(SSH + [remote])
 
 
-def control(action):
+def control(action, host):
     """Use postgres peer auth on reports; never export database credentials."""
     if action not in ("pause", "resume"):
         raise ValueError("unsupported control action")
     return run(["runuser", "-u", "postgres", "--",
                 "/opt/bf4br/.venv/bin/python", "-m", "bf4br.control",
-                "--node", HOST, action], cwd=REPO,
+                "--node", host, action], cwd=REPO,
                env={**os.environ, "BF4BR_DSN": "dbname=bf4_battle_reports user=postgres"})
 
 
-def drain(timeout=100):
+def drain(host, timeout=100):
     """Require paused controls and no outstanding node-owned leases."""
     deadline = time.monotonic() + timeout
     script = (
         "import psycopg,sys; "
         "c=psycopg.connect('dbname=bf4_battle_reports user=postgres'); "
         "cur=c.cursor(); "
-        "cur.execute('SELECT paused FROM bf4br_node_controls WHERE node_name=%s',('hnl-01',)); "
+        "cur.execute('SELECT paused FROM bf4br_node_controls WHERE node_name=%s',(" + repr(host) + ",)); "
         "row=cur.fetchone(); "
         "cur.execute(\"SELECT (SELECT count(*) FROM bf4br_persona_jobs WHERE state='leased' AND lease_owner LIKE %s) + "
         "(SELECT count(*) FROM bf4br_report_jobs WHERE state='leased' AND lease_owner LIKE %s)\", "
-        "('hnl-01-%','hnl-01-%')); "
+        "(" + repr(host + "-%") + "," + repr(host + "-%") + ")); "
         "n=cur.fetchone()[0]; "
         "print(int(bool(row and row[0])),n); "
         "sys.exit(0 if row and row[0] and n==0 else 1)"
@@ -124,39 +144,41 @@ def deploy():
     with LOCK.open("w") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         version, sha = release()
-        # Do not drain or restart a host already running the approved release.
-        current = subprocess.run(
-            SSH + ["readlink -f /opt/bf4br"],
-            capture_output=True, text=True, timeout=15, check=True).stdout.strip()
-        if current == f"/opt/bf4br-releases/{version}":
-            marker = subprocess.run(
-                SSH + ["cat /opt/bf4br-release-state.json"],
-                capture_output=True, text=True, timeout=15, check=True)
-            state = json.loads(marker.stdout)
-            if state.get("version") != version or state.get("sha") != sha:
-                raise RuntimeError("live release state differs from official tag")
-            print(json.dumps({"status": "already_current", "version": version}))
-            return
-        # Explicit host allowlist, no arbitrary remote execution targets.
-        stage(version, sha)
-        # Remote switcher is shipped from coordinator code, not from the
-        # release archive, so the v1.0.0 baseline can be deployed.
-        run(["scp", "-q", "-o", "BatchMode=yes", "-o",
-             "StrictHostKeyChecking=yes",
-             f"{REPO}/bf4br/release_switch.py",
-             f"{HOST}:/root/bf4br-release-switch.py"])
-        control("pause")
-        try:
-            drain()
-            result = run(SSH + ["python3", "/root/bf4br-release-switch.py",
-                                "--deploy", version, "--sha", sha],
-                         capture_output=True, text=True)
-            print(result.stdout)
-        finally:
-            control("resume")
+        results = []
+        hosts = registered_hosts()
+        for host in hosts:
+            ssh = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", host]
+            current = subprocess.run(ssh + ["readlink -f /opt/bf4br"],
+                capture_output=True, text=True, timeout=15, check=True).stdout.strip()
+            if current == f"/opt/bf4br-releases/{version}":
+                marker = subprocess.run(ssh + ["cat /opt/bf4br-release-state.json"],
+                    capture_output=True, text=True, timeout=15)
+                if marker.returncode == 0:
+                    state = json.loads(marker.stdout)
+                    if state.get("version") != version or state.get("sha") != sha:
+                        raise RuntimeError(f"{host}: live release state differs from official tag")
+                else:
+                    # Pre-existing manually installed v1.0.1 node: verify immutable artifact marker.
+                    run(ssh + [f"grep -qx '{sha}' /opt/bf4br-releases/{version}/.bf4br-release-sha"])
+                results.append({"host": host, "status": "already_current"})
+                continue
+            stage(version, sha, host)
+            run(["scp", "-q", "-o", "BatchMode=yes", "-o",
+                 "StrictHostKeyChecking=yes", f"{REPO}/bf4br/release_switch.py",
+                 f"{host}:/root/bf4br-release-switch.py"])
+            control("pause", host)
+            try:
+                drain(host)
+                result = run(ssh + ["python3", "/root/bf4br-release-switch.py",
+                                    "--deploy", version, "--sha", sha],
+                             capture_output=True, text=True)
+                results.append({"host": host, "result": json.loads(result.stdout)})
+            finally:
+                control("resume", host)
         STATE.parent.mkdir(parents=True, exist_ok=True)
-        STATE.write_text(json.dumps({"host": HOST, "version": version,
-                                     "sha": sha}) + "\n")
+        STATE.write_text(json.dumps({"hosts": hosts, "version": version,
+                                     "sha": sha, "results": results}) + "\n")
+        print(json.dumps({"version": version, "results": results}))
 
 
 def main():
@@ -168,7 +190,8 @@ def main():
         parser.error("choose exactly one of --check or --deploy")
     if args.check:
         version, sha = release()
-        print(json.dumps({"release": version, "sha": sha, "host": HOST,
+        hosts = registered_hosts()
+        print(json.dumps({"release": version, "sha": sha, "hosts": hosts,
                           "action": "none"}))
     else:
         deploy()

@@ -16,7 +16,7 @@ def claim(conn, kind, worker, lease_seconds=120):
                     SELECT platform,{key} FROM {table}
                     WHERE (state='ready' AND next_attempt_at <= now())
                        OR (state='leased' AND lease_until < now())
-                    ORDER BY next_attempt_at,platform,{key}
+                    ORDER BY {"random()" if kind == "persona" else "next_attempt_at,platform," + key}
                     FOR UPDATE SKIP LOCKED LIMIT 1
                 )
                 UPDATE {table} j
@@ -54,8 +54,10 @@ def release(conn, kind, platform, item, token, delay_seconds=0, error=None, done
                  error,platform,item,token))
             return cur.rowcount == 1
 
-def seed(conn, limit=1000):
+def seed(conn, limit=1000, persona_limit=None, report_limit=None):
     """Incrementally enqueue existing identities and report IDs."""
+    if persona_limit is None: persona_limit = limit
+    if report_limit is None: report_limit = limit
     with conn.transaction():
         with conn.cursor() as cur:
             cur.execute("""INSERT INTO bf4br_persona_jobs(platform,persona_id)
@@ -63,7 +65,7 @@ def seed(conn, limit=1000):
                 WHERE NOT EXISTS (
                     SELECT 1 FROM bf4br_persona_jobs j
                     WHERE j.platform=p.platform AND j.persona_id=p.persona_id)
-                ORDER BY p.id LIMIT %s ON CONFLICT DO NOTHING""",(limit,))
+                ORDER BY p.id LIMIT %s ON CONFLICT DO NOTHING""",(persona_limit,))
             personas = cur.rowcount
             cur.execute("""INSERT INTO bf4br_report_jobs(platform,battlelog_report_id)
                 SELECT d.platform,d.battlelog_report_id FROM history_discoveries d
@@ -76,6 +78,6 @@ def seed(conn, limit=1000):
                     WHERE j.platform=d.platform
                       AND j.battlelog_report_id=d.battlelog_report_id)
                 ORDER BY d.report_timestamp DESC LIMIT %s ON CONFLICT DO NOTHING""",
-                (limit,))
+                (report_limit,))
             reports = cur.rowcount
     return personas,reports
