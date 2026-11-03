@@ -58,7 +58,7 @@ def main():
                         serial+=1
                         # First three report slots reserve PC/PS/Xbox; fourth is flexible.
                         slot=len(running)
-                        preferred=(slots[(rank*max(1,desired)+slot)%3] if kind=="persona"
+                        preferred=(slots[slot%3] if kind=="persona"
                                    else (slots[rank%3] if rank<3 else None))
                         env={**os.environ,"BF4BR_WORKER_ID":f"{node}-{kind}-{serial}"}
                         if preferred is not None:
