@@ -124,6 +124,19 @@ def deploy():
     with LOCK.open("w") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         version, sha = release()
+        # Do not drain or restart a host already running the approved release.
+        current = subprocess.run(
+            SSH + ["readlink -f /opt/bf4br"],
+            capture_output=True, text=True, timeout=15, check=True).stdout.strip()
+        if current == f"/opt/bf4br-releases/{version}":
+            marker = subprocess.run(
+                SSH + ["cat /opt/bf4br-release-state.json"],
+                capture_output=True, text=True, timeout=15, check=True)
+            state = json.loads(marker.stdout)
+            if state.get("version") != version or state.get("sha") != sha:
+                raise RuntimeError("live release state differs from official tag")
+            print(json.dumps({"status": "already_current", "version": version}))
+            return
         # Explicit host allowlist, no arbitrary remote execution targets.
         stage(version, sha)
         # Remote switcher is shipped from coordinator code, not from the
