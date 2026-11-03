@@ -24,6 +24,17 @@ class ReleaseSwitchSafety(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "SHA mismatch"):
                     sw.assert_staged("v1.0.0", "b" * 40)
 
+    def test_health_rejects_inactive_service(self):
+        with patch.object(sw, "service_active", return_value=False):
+            self.assertFalse(sw.healthy())
+
+    def test_deployment_rejects_bad_sha_before_service_stop(self):
+        with patch.object(sw, "RELEASES", Path("/nonexistent-release-test")):
+            with patch.object(sw, "run") as runner:
+                with self.assertRaises(RuntimeError):
+                    sw.assert_staged("v1.0.0", "a" * 40)
+                runner.assert_not_called()
+
     def test_switch_restores_legacy_directory(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
