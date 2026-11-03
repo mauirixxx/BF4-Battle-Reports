@@ -6,17 +6,20 @@ QUEUES = {
     "report": ("bf4br_report_jobs", "battlelog_report_id"),
 }
 
-def claim(conn, kind, worker, lease_seconds=120):
+def claim(conn, kind, worker, lease_seconds=120, platform=None):
     table, key = QUEUES[kind]
+    if platform is not None and platform not in (1, 32, 64):
+        raise ValueError("unsupported platform")
     token = uuid.uuid4()
     with conn.transaction():
         with conn.cursor() as cur:
             cur.execute(f"""
                 WITH candidate AS (
                     SELECT platform,{key} FROM {table}
-                    WHERE (state='ready' AND next_attempt_at <= now())
-                       OR (state='leased' AND lease_until < now())
-                    ORDER BY {"random()" if kind == "persona" else "next_attempt_at,platform," + key}
+                    WHERE ((state='ready' AND next_attempt_at <= now())
+                       OR (state='leased' AND lease_until < now()))
+                       AND (%s::smallint IS NULL OR platform=%s)
+                    ORDER BY {"random()" if kind == "persona" else "(SELECT d.report_timestamp FROM history_discoveries d WHERE d.platform=" + table + ".platform AND d.battlelog_report_id=" + table + ".battlelog_report_id) DESC NULLS LAST,next_attempt_at,platform," + key}
                     FOR UPDATE SKIP LOCKED LIMIT 1
                 )
                 UPDATE {table} j
@@ -25,7 +28,7 @@ def claim(conn, kind, worker, lease_seconds=120):
                 FROM candidate c
                 WHERE j.platform=c.platform AND j.{key}=c.{key}
                 RETURNING j.platform,j.{key}
-            """, (worker, token, lease_seconds))
+            """, (platform, platform, worker, token, lease_seconds))
             row = cur.fetchone()
     return (row, token) if row else None
 
