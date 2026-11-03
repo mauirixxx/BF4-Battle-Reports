@@ -7,7 +7,7 @@ import uuid
 import psycopg
 from bf4br.queue import claim, renew, release
 
-DSN = os.environ["BF4BR_TEST_DSN"]
+DSN = os.environ.get("BF4BR_TEST_DSN")
 
 def connection():
     return psycopg.connect(DSN, autocommit=True)
@@ -15,6 +15,8 @@ def connection():
 class QueueIntegration(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if not DSN:
+            raise unittest.SkipTest("BF4BR_TEST_DSN not configured")
         cls.admin = connection()
         with cls.admin.cursor() as cur:
             cur.execute("SELECT current_database()")
