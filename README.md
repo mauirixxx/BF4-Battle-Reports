@@ -16,3 +16,7 @@ See `README-operations.md` for the original operational commands.
 - Reuse the existing PostgreSQL database; no production schema or service changes until migrations and tests are verified.
 
 Never commit credentials, database dumps, or raw player-report data to this repository.
+
+## v1.0.3 platform fairness
+
+See [docs/v1.0.3-fairness.md](docs/v1.0.3-fairness.md) for per-platform feeder targets, worker assignment, and fresh-first report ordering.
