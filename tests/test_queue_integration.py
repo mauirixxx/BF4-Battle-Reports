@@ -95,3 +95,21 @@ class QueueIntegration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class PlatformFairnessIntegration(unittest.TestCase):
+    def test_platform_filter_and_newest_report_first(self):
+        with psycopg.connect(DSN,autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute('TRUNCATE bf4br_persona_jobs,bf4br_report_jobs,history_discoveries')
+                cur.executemany('INSERT INTO bf4br_persona_jobs(platform,persona_id) VALUES (%s,%s)',[(1,101),(32,102),(64,103)])
+                cur.executemany('INSERT INTO bf4br_report_jobs(platform,battlelog_report_id) VALUES (%s,%s)',[(1,201),(32,202),(64,203),(64,204)])
+                cur.executemany('INSERT INTO history_discoveries(platform,battlelog_report_id,report_timestamp) VALUES (%s,%s,now()-(%s * interval \'1 day\'))',[(64,203,3),(64,204,0)])
+            for platform in (1,32,64):
+                claimed=claim(conn,'persona',str(platform),platform=platform)
+                self.assertEqual(claimed[0][0],platform)
+                self.assertTrue(release(conn,'persona',*claimed[0],claimed[1],done=True))
+            claimed=claim(conn,'report','xbox',platform=64)
+            self.assertEqual(claimed[0],(64,204))
+            self.assertTrue(release(conn,'report',*claimed[0],claimed[1],done=True))
+            claimed=claim(conn,'report','xbox',platform=64)
+            self.assertEqual(claimed[0],(64,203))
