@@ -1,0 +1,12 @@
+[Unit]
+Description=Check BF4BR official GitHub releases for canary upgrades
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+AccuracySec=15s
+Unit=bf4br-release-updater.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target
