@@ -48,12 +48,14 @@ def healthy():
     dsn = variables.get("BF4BR_DSN")
     if not dsn:
         return False
-    # No SQL writes; the connection check must use the collector's own DSN.
-    from psycopg import connect
-    with connect(dsn, connect_timeout=5) as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1")
-            return cur.fetchone() == (1,)
+    # Probe through the active release virtualenv, not system Python.
+    probe = subprocess.run(
+        [str(LIVE / '.venv/bin/python'), '-c',
+         "import os,psycopg; c=psycopg.connect(os.environ['BF4BR_DSN'],connect_timeout=5); "
+         "cur=c.cursor(); cur.execute('SELECT 1'); assert cur.fetchone()==(1,); c.close()"],
+        env={**os.environ, 'BF4BR_DSN': dsn},
+        capture_output=True, text=True, timeout=12)
+    return probe.returncode == 0
 
 
 def installed():
