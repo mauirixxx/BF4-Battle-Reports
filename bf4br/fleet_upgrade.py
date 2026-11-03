@@ -36,8 +36,9 @@ def stage(version, sha):
     # Refuse to overwrite an already-published version directory.
     # Reuse only an installation carrying the exact expected SHA marker.
     check = subprocess.run(
-        SSH + [f"test -f /opt/bf4br-releases/{version}/.bf4br-release-sha && "
-               f"test \\"$(cat /opt/bf4br-releases/{version}/.bf4br-release-sha)\\" = {sha}"],
+        SSH + ["test -f /opt/bf4br-releases/" + version +
+               "/.bf4br-release-sha && grep -qx '" + sha + "' " +
+               "/opt/bf4br-releases/" + version + "/.bf4br-release-sha"],
         capture_output=True, text=True, timeout=15)
     if check.returncode == 0:
         return
