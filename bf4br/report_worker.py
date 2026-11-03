@@ -64,7 +64,7 @@ def main():
     worker=os.environ.get("BF4BR_WORKER_ID",f"report-{os.getpid()}")
     with psycopg.connect(os.environ["BF4BR_DSN"],autocommit=True) as conn:
         while not STOP:
-            claimed=claim(conn,"report",worker,120)
+            claimed=claim(conn,"report",worker,120,platform=int(os.environ["BF4BR_PLATFORM"]) if os.environ.get("BF4BR_PLATFORM") else None)
             if claimed is None:
                 time.sleep(3)
                 continue
