@@ -68,3 +68,13 @@ All three tables were independently verified in `information_schema.columns` aft
 - Post-run database verification: 3 jobs `done`, 1 `ready`, **0 leased**; 256 report-player associations across successful reports. Both bounded processes exited with code 0.
 - The one-shot canary scripts were removed from both machines. The node controls remain paused. `reports` was used only as an explicitly requested temporary canary worker, not converted to a production collector.
 - Before enabling ongoing collection, examine incomplete-report handling and verify supervisor pause/resume and graceful shutdown on the remote node. Multi-site concurrency was verified for report workers, not yet persona workers or a persistent multi-node supervisor.
+
+## 2026-11-03 supervisor deployment on hnl-01
+
+- `/opt/bf4br/.venv` has Python and psycopg 3.3.7; `/root/.pgpass` mode 0600 holds the dedicated database credential. Never commit this file.
+- Installed `/etc/systemd/system/bf4br-supervisor.service`, configured `BF4BR_NODE=hnl-01`, `BF4BR_DSN` with direct IP `192.168.200.49`, username `bf4br_collector`, and passfile. **Quote the entire systemd Environment assignment when its value contains spaces**; otherwise libpq falls back to root/root. Startup restart fixed this.
+- Enabled systemd startup. Supervisor runs on `hnl-01` only. The `reports` node control stays paused and is not running a production supervisor.
+- Validated pause -> resume -> pause/drain -> resume. Paused supervisor had no worker children; resumed spawned one persona and one report child; pause terminated both gracefully.
+- First live persona attempt found a missing `INSERT,UPDATE` grant on `history_discoveries`; added this grant to `bf4br_collector`. Retry succeeded and logged `page saved ... reports=10`.
+- Verified live history pages accumulating and new report jobs being enqueued automatically. Last observation: `hnl-01` unpaused with one persona and one report worker; `reports` paused. This is an ongoing first-node canary, **not yet sustained multi-collector-node production**.
+- Operational control: `systemctl status bf4br-supervisor.service`, `journalctl -u bf4br-supervisor.service -f`; pause with `python -m bf4br.control --node hnl-01 pause` using an authenticated `BF4BR_DSN`, resume similarly. Check job states and lease owners before expanding concurrency.
