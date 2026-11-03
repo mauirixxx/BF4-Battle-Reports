@@ -12,6 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 
 from bf4br.release_coordinator import latest_release, tag_sha
 
@@ -66,6 +67,43 @@ def stage(version, sha):
     run(SSH + [remote])
 
 
+def control(action):
+    """Use postgres peer auth on reports; never export database credentials."""
+    if action not in ("pause", "resume"):
+        raise ValueError("unsupported control action")
+    return run(["runuser", "-u", "postgres", "--",
+                "/opt/bf4br/.venv/bin/python", "-m", "bf4br.control",
+                "--node", HOST, action], cwd=REPO,
+               env={**os.environ, "BF4BR_DSN": "dbname=bf4_battle_reports user=postgres"})
+
+
+def drain(timeout=100):
+    """Require paused controls and no outstanding node-owned leases."""
+    deadline = time.monotonic() + timeout
+    script = (
+        "import psycopg,sys; "
+        "c=psycopg.connect('dbname=bf4_battle_reports user=postgres'); "
+        "cur=c.cursor(); "
+        "cur.execute('SELECT paused FROM bf4br_node_controls WHERE node_name=%s',('hnl-01',)); "
+        "row=cur.fetchone(); "
+        "cur.execute(\"SELECT (SELECT count(*) FROM bf4br_persona_jobs WHERE state='leased' AND lease_owner LIKE %s) + "
+        "(SELECT count(*) FROM bf4br_report_jobs WHERE state='leased' AND lease_owner LIKE %s)\", "
+        "('hnl-01-%','hnl-01-%')); "
+        "n=cur.fetchone()[0]; "
+        "print(int(bool(row and row[0])),n); "
+        "sys.exit(0 if row and row[0] and n==0 else 1)"
+    )
+    while time.monotonic() < deadline:
+        result = subprocess.run(
+            ["runuser", "-u", "postgres", "--",
+             "/opt/bf4br/.venv/bin/python", "-c", script],
+            cwd=REPO, capture_output=True, text=True, timeout=15)
+        if result.returncode == 0:
+            return
+        time.sleep(3)
+    raise TimeoutError("node did not drain database leases")
+
+
 def deploy():
     if os.geteuid() != 0:
         raise PermissionError("coordinator must run as root")
@@ -81,10 +119,15 @@ def deploy():
              "StrictHostKeyChecking=yes",
              f"{REPO}/bf4br/release_switch.py",
              f"{HOST}:/root/bf4br-release-switch.py"])
-        result = run(SSH + ["python3", "/root/bf4br-release-switch.py",
-                            "--deploy", version, "--sha", sha],
-                     capture_output=True, text=True)
-        print(result.stdout)
+        control("pause")
+        try:
+            drain()
+            result = run(SSH + ["python3", "/root/bf4br-release-switch.py",
+                                "--deploy", version, "--sha", sha],
+                         capture_output=True, text=True)
+            print(result.stdout)
+        finally:
+            control("resume")
         STATE.parent.mkdir(parents=True, exist_ok=True)
         STATE.write_text(json.dumps({"host": HOST, "version": version,
                                      "sha": sha}) + "\n")
