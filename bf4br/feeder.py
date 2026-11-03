@@ -23,21 +23,58 @@ def queue_depths(conn):
         reports = cur.fetchone()[0]
     return personas, reports
 
+def platform_depths(conn):
+    with conn.cursor() as cur:
+        cur.execute("""SELECT platform,
+          count(*) FILTER (WHERE state='ready' AND next_attempt_at<=now())
+          FROM bf4br_persona_jobs GROUP BY platform""")
+        personas=dict(cur.fetchall())
+        cur.execute("""SELECT platform,
+          count(*) FILTER (WHERE state='ready' AND next_attempt_at<=now())
+          FROM bf4br_report_jobs GROUP BY platform""")
+        reports=dict(cur.fetchall())
+    return personas,reports
+
+
+def seed_platform(conn, platform, persona_limit, report_limit):
+    """Bounded, idempotent platform-specific seeding."""
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO bf4br_persona_jobs(platform,persona_id)
+                SELECT p.platform,p.persona_id FROM players p
+                WHERE p.platform=%s AND NOT EXISTS (
+                  SELECT 1 FROM bf4br_persona_jobs j
+                  WHERE j.platform=p.platform AND j.persona_id=p.persona_id)
+                ORDER BY p.id LIMIT %s ON CONFLICT DO NOTHING""",
+                (platform,persona_limit))
+            personas=cur.rowcount
+            cur.execute("""INSERT INTO bf4br_report_jobs(platform,battlelog_report_id)
+                SELECT d.platform,d.battlelog_report_id FROM history_discoveries d
+                WHERE d.platform=%s AND NOT EXISTS (
+                  SELECT 1 FROM battle_report_raw r
+                  WHERE r.platform=d.platform AND r.battlelog_report_id=d.battlelog_report_id
+                    AND r.imported_at IS NOT NULL)
+                  AND NOT EXISTS (
+                  SELECT 1 FROM bf4br_report_jobs j
+                  WHERE j.platform=d.platform AND j.battlelog_report_id=d.battlelog_report_id)
+                ORDER BY d.report_timestamp DESC LIMIT %s ON CONFLICT DO NOTHING""",
+                (platform,report_limit))
+            reports=cur.rowcount
+    return personas,reports
+
+
 def replenish(conn, low=250, target=1000, batch=250):
     if not (0 <= low < target and 1 <= batch <= target):
         raise ValueError('invalid queue thresholds')
-    before = queue_depths(conn)
-    # seed() is idempotent; cap the insert batch and only refill when needed.
-    persona_limit = min(batch, max(0, target-before[0])) if before[0] < low else 0
-    report_limit = min(batch, max(0, target-before[1])) if before[1] < low else 0
-    if persona_limit or report_limit:
-        inserted = seed(conn, persona_limit=persona_limit, report_limit=report_limit)
-    else:
-        inserted = (0, 0)
-    after = queue_depths(conn)
-    LOG.info('queue personas=%s reports=%s inserted_personas=%s inserted_reports=%s',
-             after[0], after[1], inserted[0], inserted[1])
-    return inserted, after
+    before=platform_depths(conn)
+    inserted={}
+    for platform in (1,32,64):
+        p=min(batch,max(0,target-before[0].get(platform,0))) if before[0].get(platform,0)<low else 0
+        r=min(batch,max(0,target-before[1].get(platform,0))) if before[1].get(platform,0)<low else 0
+        inserted[platform]=seed_platform(conn,platform,p,r) if p or r else (0,0)
+    after=platform_depths(conn)
+    LOG.info('platform queue depths=%s inserted=%s',after,inserted)
+    return inserted,after
 
 def main():
     parser = argparse.ArgumentParser()
