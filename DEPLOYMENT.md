@@ -52,6 +52,19 @@ All three tables were independently verified in `information_schema.columns` aft
 4. Seed a small, explicitly approved set of persona/report jobs; do not unleash the entire backlog.
 5. Start supervisor, observe claims, lease renewals, retry logs, raw archives, imported report counts and any HTTP 403/429/503.
 6. Verify pause/drain, restart recovery and no duplicate reports. Only then authorize a second node and verify cross-node unique claims.
-7. Roll out remaining nodes incrementally; keep `reports` collector-free.
+7. Roll out remaining nodes incrementally; keep `reports` collector-free except for explicitly bounded test runs.
 
 **Before rollout:** confirm importer equivalence for player-name history and timestamp behavior on more representative real reports, review production DB role grants and credentials, and check current worker shutdown behavior. A successful single-report canary is not blanket authorization for ten nodes.
+
+## 2026-11-03 cross-site production canary (bounded)
+
+- `reports`: PostgreSQL 18.6 at `192.168.200.49`; `hnl-01`: Honolulu worker at `192.168.5.70`.
+- Created dedicated `bf4br_collector` PostgreSQL login, scoped table grants, and SCRAM `pg_hba.conf` entry for `192.168.5.70/32`. Verified authenticated Python psycopg connection using a protected passfile.
+- Registered node controls: `hnl-01` one persona/one report worker, **paused**; `reports` zero persona/one report worker, **paused**. The canary deliberately bypassed supervisor controls with explicitly bounded one-shot workers, **two report jobs per site**, to test concurrency. No persistent service or persona worker was started.
+- Four platform-1 reports were seeded, both sites concurrently claimed distinct jobs using token-fenced leases.
+- `reports` imported IDs `2115119935475624320` (100 players) and `2115151036395608320` (62 players).
+- `hnl-01` imported `2115149075541076352` (94 players).
+- `hnl-01` deferred `2115624300955880000` because the HTTP 200 payload was **incomplete**; job is `ready` with one failure and retry delay, no normalized import.
+- Post-run database verification: 3 jobs `done`, 1 `ready`, **0 leased**; 256 report-player associations across successful reports. Both bounded processes exited with code 0.
+- The one-shot canary scripts were removed from both machines. The node controls remain paused. `reports` was used only as an explicitly requested temporary canary worker, not converted to a production collector.
+- Before enabling ongoing collection, examine incomplete-report handling and verify supervisor pause/resume and graceful shutdown on the remote node. Multi-site concurrency was verified for report workers, not yet persona workers or a persistent multi-node supervisor.
