@@ -1,0 +1,12 @@
+[Unit]
+Description=BF4BR official-release canary updater
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/bf4br
+ExecStart=/opt/bf4br/.venv/bin/python -m bf4br.fleet_upgrade --deploy
+TimeoutStartSec=240
+NoNewPrivileges=true
