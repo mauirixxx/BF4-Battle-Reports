@@ -1,0 +1,10 @@
+# Safe smoke-test only. No network requests to Battlelog or production database.
+services:
+  smoke:
+    build: .
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: "no"
