@@ -23,8 +23,8 @@ SERVICE = "bf4br-supervisor.service"
 VERSION = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+\Z")
 
 
-def run(*args, timeout=90):
-    return subprocess.run(args, check=True, text=True, capture_output=True, timeout=timeout)
+def run(*args, timeout=90, cwd=None):
+    return subprocess.run(args, check=True, text=True, capture_output=True, timeout=timeout, cwd=cwd)
 
 
 def service_active():
@@ -77,7 +77,7 @@ def assert_staged(version, sha):
         raise RuntimeError("staged release SHA mismatch")
     if not (target / ".venv/bin/python").is_file():
         raise RuntimeError("staged virtualenv missing")
-    run(str(target / ".venv/bin/python"), "-c", "import psycopg, bf4br.supervisor", timeout=15)
+    run(str(target / ".venv/bin/python"), "-c", "import psycopg, bf4br.supervisor", timeout=15, cwd=target)
     return target
 
 
