@@ -40,8 +40,8 @@ class SupervisorIntegration(unittest.TestCase):
                 await_count(0)
                 with conn.cursor() as cur:
                     cur.execute("""UPDATE bf4br_node_controls
-                        SET persona_workers=2 WHERE node_name='supervisor-test'""")
-                await_count(2)
+                        SET persona_workers=2,report_workers=1 WHERE node_name='supervisor-test'""")
+                await_count(3)
                 with conn.cursor() as cur:
                     cur.execute("""UPDATE bf4br_node_controls
                         SET paused=true WHERE node_name='supervisor-test'""")
