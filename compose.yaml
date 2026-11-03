@@ -1,7 +1,40 @@
-# Safe smoke-test only. No network requests to Battlelog or production database.
+# Disposable local PostgreSQL integration tests. No production DB connection.
 services:
   smoke:
     build: .
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: "no"
+
+  test-db:
+    image: postgres:18
+    profiles: ["integration"]
+    environment:
+      POSTGRES_USER: bf4br_test
+      POSTGRES_PASSWORD: local_test_only
+      POSTGRES_DB: bf4br_integration
+    tmpfs:
+      - /var/lib/postgresql:rw,noexec,nosuid,size=256m
+    volumes:
+      - ./migrations/0001_worker_queues.sql:/docker-entrypoint-initdb.d/0001.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bf4br_test -d bf4br_integration"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  integration:
+    build: .
+    profiles: ["integration"]
+    command: ["python", "-m", "unittest", "discover", "-s", "tests", "-v"]
+    environment:
+      BF4BR_TEST_DSN: postgresql://bf4br_test:local_test_only@test-db:5432/bf4br_integration
+    depends_on:
+      test-db:
+        condition: service_healthy
     read_only: true
     security_opt:
       - no-new-privileges:true
