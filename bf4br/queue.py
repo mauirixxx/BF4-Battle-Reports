@@ -69,8 +69,8 @@ def seed(conn, limit=1000):
                 SELECT d.platform,d.battlelog_report_id FROM history_discoveries d
                 WHERE NOT EXISTS (
                     SELECT 1 FROM battle_report_raw r
-                    WHERE r.platform=d.platform
-                      AND r.battlelog_report_id=d.battlelog_report_id)
+                    WHERE r.platform=d.platform AND r.battlelog_report_id=d.battlelog_report_id
+                      AND r.imported_at IS NOT NULL)
                   AND NOT EXISTS (
                     SELECT 1 FROM bf4br_report_jobs j
                     WHERE j.platform=d.platform
