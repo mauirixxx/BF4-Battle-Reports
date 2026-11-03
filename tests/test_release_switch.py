@@ -61,6 +61,30 @@ class ReleaseSwitchSafety(unittest.TestCase):
             self.assertFalse((root / "state").exists())
             self.assertIn(("systemctl", "restart", sw.SERVICE), actions)
 
+    def test_failed_health_check_restores_previous_version_symlink(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            releases = root / "releases"
+            old = releases / "v1.0.0"
+            new = releases / "v1.0.1"
+            for directory in (old, new):
+                (directory / ".venv/bin").mkdir(parents=True)
+                (directory / ".venv/bin/python").write_text("test")
+            (new / ".bf4br-release-sha").write_text("a" * 40)
+            live = root / "bf4br"
+            live.symlink_to(old, target_is_directory=True)
+            actions = []
+            def fake_run(*args, **kwargs):
+                actions.append(args)
+                return None
+            with patch.object(sw, "ROOT", root), patch.object(sw, "LIVE", live), patch.object(sw, "RELEASES", releases), patch.object(sw, "LOCK", root / "lock"), patch.object(sw, "STATE", root / "state"), patch.object(sw, "run", side_effect=fake_run), patch.object(sw, "service_active", side_effect=[True, False]), patch.object(sw, "healthy", side_effect=[False, True]), patch.object(sw.time, "sleep"), patch.object(sw.os, "geteuid", return_value=0):
+                with self.assertRaisesRegex(RuntimeError, "health check"):
+                    sw.deploy("v1.0.1", "a" * 40)
+            self.assertTrue(live.is_symlink())
+            self.assertEqual(live.resolve(), old)
+            self.assertIn(("systemctl", "restart", sw.SERVICE), actions)
+            self.assertFalse((root / "state").exists())
+
     def test_switch_restores_legacy_directory(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
