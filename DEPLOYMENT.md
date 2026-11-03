@@ -78,3 +78,12 @@ All three tables were independently verified in `information_schema.columns` aft
 - First live persona attempt found a missing `INSERT,UPDATE` grant on `history_discoveries`; added this grant to `bf4br_collector`. Retry succeeded and logged `page saved ... reports=10`.
 - Verified live history pages accumulating and new report jobs being enqueued automatically. Last observation: `hnl-01` unpaused with one persona and one report worker; `reports` paused. This is an ongoing first-node canary, **not yet sustained multi-collector-node production**.
 - Operational control: `systemctl status bf4br-supervisor.service`, `journalctl -u bf4br-supervisor.service -f`; pause with `python -m bf4br.control --node hnl-01 pause` using an authenticated `BF4BR_DSN`, resume similarly. Check job states and lease owners before expanding concurrency.
+
+## Fleet controller on reports (phase 1: observe-only)
+
+- Installed `bf4br-deployer.service` on `reports`, running as local `postgres` with PostgreSQL peer authentication, no embedded passwords. The unit source is `deploy/systemd/bf4br-deployer.service`.
+- `bf4br/deployer.py` polls GitHub `origin/main` every 300 seconds and reads registered node controls. Logs current checkout SHA, remote main SHA, whether an update exists, and configured worker counts/paused state.
+- **This is an observation-only foundation, not yet an automatic updater.** It never executes SSH, changes worker controls, installs releases, or restarts services.
+- Remote `root@192.168.5.70` SSH from `reports` was tested with `BatchMode=yes` and **failed public-key authentication**. Do not enable unattended deployment until a dedicated, restricted deployment identity, pinned host keys, remote command authorization, and least-privilege credentials are established.
+- Next deployment phase: approved immutable release/tag manifest; remote host inventory; exclusive rollout lock; preflight checks; one-node-at-a-time drain and bounded lease wait; atomic versioned releases and isolated virtualenvs; restart and HTTP/database health validation; automatic rollback and halt on failure; explicit database migration compatibility gate.
+- Operator checks: `systemctl status bf4br-deployer.service`; `journalctl -u bf4br-deployer.service -n 30 --no-pager`. A one-time audit can be run with `runuser -u postgres -- /opt/bf4br/.venv/bin/python -m bf4br.deployer --once` from `/opt/bf4br`.
