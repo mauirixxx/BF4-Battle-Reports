@@ -21,5 +21,3 @@ def recover(conn,platform,report_id):
     with conn.cursor() as cur:
         cur.execute("SELECT raw_response,imported_at FROM battle_report_raw WHERE platform=%s AND battlelog_report_id=%s",(platform,report_id))
         return cur.fetchone()
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
