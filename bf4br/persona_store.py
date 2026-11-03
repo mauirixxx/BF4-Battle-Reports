@@ -82,7 +82,7 @@ def persist_page(conn, platform, persona, token, cursor, payload):
                 WHERE platform=%s AND persona_id=%s AND lease_token=%s
                   AND state='leased' AND lease_until>now()""",
                 (None if finished else next_cursor,new_newest,
-                 finished,finished,finished,finished,finished,finished,
+                 finished,finished,finished,finished,finished,finished,finished,finished,
                  platform,persona,token))
             if cur.rowcount!=1:
                 raise RuntimeError("lease expired during page transaction")
