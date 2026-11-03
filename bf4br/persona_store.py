@@ -70,7 +70,8 @@ def persist_page(conn, platform, persona, token, cursor, payload):
                         last_pages=history_persona_refreshes.last_pages+1""",
                     (platform,persona,new_newest))
             cur.execute("""UPDATE bf4br_persona_jobs SET
-                cursor_epoch=%s,newest_epoch=%s,\n                boundary_epoch=CASE WHEN %s THEN %s ELSE boundary_epoch END,
+                cursor_epoch=%s,newest_epoch=%s,
+                boundary_epoch=CASE WHEN %s THEN %s ELSE boundary_epoch END,
                 state=CASE WHEN %s THEN 'ready' ELSE 'leased' END,
                 next_attempt_at=CASE WHEN %s THEN now()+interval '24 hours'
                                      ELSE next_attempt_at END,
@@ -82,7 +83,7 @@ def persist_page(conn, platform, persona, token, cursor, payload):
                 WHERE platform=%s AND persona_id=%s AND lease_token=%s
                   AND state='leased' AND lease_until>now()""",
                 (None if finished else next_cursor,new_newest,
-                 finished,finished,finished,finished,finished,finished,finished,finished,
+                 finished,new_newest,finished,finished,finished,finished,finished,finished,
                  platform,persona,token))
             if cur.rowcount!=1:
                 raise RuntimeError("lease expired during page transaction")
