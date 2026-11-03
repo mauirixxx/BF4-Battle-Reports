@@ -35,6 +35,32 @@ class ReleaseSwitchSafety(unittest.TestCase):
                     sw.assert_staged("v1.0.0", "a" * 40)
                 runner.assert_not_called()
 
+    def test_failed_activation_restores_original_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            releases = root / "releases"
+            releases.mkdir()
+            live = root / "bf4br"
+            live.mkdir()
+            (live / "old").write_text("original")
+            target = releases / "v1.0.1"
+            (target / ".venv/bin").mkdir(parents=True)
+            (target / ".venv/bin/python").write_text("test")
+            (target / ".bf4br-release-sha").write_text("a" * 40)
+            actions = []
+            def fake_run(*args, **kwargs):
+                actions.append(args)
+                if args[:2] == ("systemctl", "start"):
+                    raise RuntimeError("injected activation failure")
+                return None
+            with patch.object(sw, "ROOT", root), patch.object(sw, "LIVE", live), patch.object(sw, "RELEASES", releases), patch.object(sw, "LOCK", root / "lock"), patch.object(sw, "STATE", root / "state"), patch.object(sw, "run", side_effect=fake_run), patch.object(sw, "service_active", side_effect=[True, False]), patch.object(sw, "healthy", return_value=True), patch.object(sw.os, "geteuid", return_value=0):
+                with self.assertRaisesRegex(RuntimeError, "injected activation failure"):
+                    sw.deploy("v1.0.1", "a" * 40)
+            self.assertFalse(live.is_symlink())
+            self.assertEqual((live / "old").read_text(), "original")
+            self.assertFalse((root / "state").exists())
+            self.assertIn(("systemctl", "restart", sw.SERVICE), actions)
+
     def test_switch_restores_legacy_directory(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
