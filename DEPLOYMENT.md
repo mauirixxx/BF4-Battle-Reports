@@ -87,3 +87,14 @@ All three tables were independently verified in `information_schema.columns` aft
 - Remote `root@192.168.5.70` SSH from `reports` was tested with `BatchMode=yes` and **failed public-key authentication**. Do not enable unattended deployment until a dedicated, restricted deployment identity, pinned host keys, remote command authorization, and least-privilege credentials are established.
 - Next deployment phase: approved immutable release/tag manifest; remote host inventory; exclusive rollout lock; preflight checks; one-node-at-a-time drain and bounded lease wait; atomic versioned releases and isolated virtualenvs; restart and HTTP/database health validation; automatic rollback and halt on failure; explicit database migration compatibility gate.
 - Operator checks: `systemctl status bf4br-deployer.service`; `journalctl -u bf4br-deployer.service -n 30 --no-pager`. A one-time audit can be run with `runuser -u postgres -- /opt/bf4br/.venv/bin/python -m bf4br.deployer --once` from `/opt/bf4br`.
+
+## Fleet SSH bootstrap from reports (2026-11-03)
+
+- Generated a **dedicated Ed25519 SSH key** on `reports`: private key `/root/.ssh/bf4br_fleet_ed25519` (mode 0600); public key `/root/.ssh/bf4br_fleet_ed25519.pub`. Never commit, copy, or display the private key. Public fingerprint: `SHA256:dbqjG1lCVoTgEDukkAdzXypb+OpySjSluZ4lZV4ylIY`.
+- Authorized this key in `/root/.ssh/authorized_keys` on **all 17 other currently connected machines**, with `from="192.168.200.49"` source restriction. This is **root SSH access** and should be treated as highly privileged; source restrictions are not a substitute for a dedicated least-privilege deploy account. The private key is currently unencrypted for unattended use, increasing the importance of protecting `reports`.
+- Independently read each target's `/etc/ssh/ssh_host_ed25519_key.pub` over the authorized remote management channel. Pinned those public host keys to `/root/.ssh/bf4br_known_hosts` on `reports`, with `StrictHostKeyChecking yes`.
+- Created `/root/.ssh/config` aliases for the 17 targets, mapping each hostname to its private IP and the dedicated key/known-hosts file. Operators on `reports` can use `ssh hnl-01`, `ssh mak-db-02`, `ssh tcou`, etc.
+- **Verified 17/17** passwordless SSH connections from `reports` using pinned host keys, each returning the expected hostname. All tests were read-only `hostname` commands.
+- Access is currently one-way: `reports` to the other machines, not an all-to-all SSH mesh. Do not distribute the private key to targets.
+- The `bf4br-deployer.service` still runs as `postgres` in **observation-only mode**. Its service account does **not** have this root SSH private key. Automatic deployments remain disabled pending a scoped deployment identity, restricted sudo/remote commands, and tested rollback.
+- To revoke access, remove the `bf4br-reports-deployment` authorized key entry from each target and retire the corresponding private key on `reports`.
