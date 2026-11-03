@@ -21,6 +21,7 @@ def main():
     node=os.environ.get("BF4BR_NODE",os.uname().nodename)
     children={}
     serial=0
+    slots=(1,32,64)
     with psycopg.connect(dsn,autocommit=True) as conn:
         while not STOP:
             try:
@@ -35,6 +36,14 @@ def main():
                     if process.poll() is not None:
                         LOG.info("worker exited pid=%s status=%s",pid,process.returncode)
                         del children[pid]
+                # Stable fleet-wide slot assignment from coordinator node registry.
+                # Each node with three persona workers contributes one per platform.
+                with conn.cursor() as cur:
+                    cur.execute("""SELECT node_name FROM bf4br_node_controls
+                        WHERE NOT paused AND (persona_workers>0 OR report_workers>0)
+                        ORDER BY node_name""")
+                    nodes=[r[0] for r in cur.fetchall()]
+                rank=nodes.index(node) if node in nodes else 0
                 for kind,desired in (("persona",persona_target),("report",report_target)):
                     target=0 if paused else desired
                     running=[pid for pid,(_,k,draining) in children.items()
@@ -47,7 +56,15 @@ def main():
                         LOG.info("draining %s worker pid=%s",kind,pid)
                     while len(running)<target:
                         serial+=1
+                        # First three report slots reserve PC/PS/Xbox; fourth is flexible.
+                        slot=len(running)
+                        preferred=(slots[(rank*max(1,desired)+slot)%3] if kind=="persona"
+                                   else (slots[rank%3] if rank<3 else None))
                         env={**os.environ,"BF4BR_WORKER_ID":f"{node}-{kind}-{serial}"}
+                        if preferred is not None:
+                            env["BF4BR_PLATFORM"]=str(preferred)
+                        else:
+                            env.pop("BF4BR_PLATFORM",None)
                         process=subprocess.Popen([sys.executable,"-m",f"bf4br.{kind}_worker"],env=env)
                         children[process.pid]=(process,kind,False)
                         running.append(process.pid)
