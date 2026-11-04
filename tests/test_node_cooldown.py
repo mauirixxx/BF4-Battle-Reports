@@ -13,7 +13,7 @@ class NodeCooldownTests(unittest.TestCase):
                 result=node_cooldown.guarded_request(lambda:(429,None,None),lambda r:r[0])
                 self.assertEqual(result[0],429)
                 data=json.loads(path.read_text())
-                self.assertEqual(data['cooldown_seconds'],120)
+                self.assertEqual(data['cooldown_seconds'],180)
                 self.assertIsNone(data['retry_after'])
                 with patch.object(node_cooldown.time,'time',return_value=data['until_epoch']+1):
                     self.assertEqual(node_cooldown.guarded_request(lambda:(200,),lambda r:r[0]),(200,))
@@ -36,7 +36,27 @@ class NodeCooldownConcurrencyTests(unittest.TestCase):
                     state['until_epoch']-=seconds
                     path.write_text(json.dumps(state))
                 node_cooldown.wait_until_clear(sleeper=advance)
-                self.assertGreaterEqual(len(calls),24)
+                self.assertGreaterEqual(len(calls),36)
                 self.assertLessEqual(max(calls),5)
                 with patch.object(node_cooldown.time,'time',return_value=state['until_epoch']+1):
                     self.assertEqual(node_cooldown.guarded_request(lambda:(200,),lambda r:r[0],on_wait=lambda:calls.append('renew')),(200,))
+
+class NodePacingTests(unittest.TestCase):
+    def test_cross_worker_spacing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(node_cooldown,'STATE',Path(directory)/'gate.json'):
+                clock=[1000.0]
+                waits=[]
+                def sleep(n):
+                    waits.append(n)
+                    clock[0]+=n
+                with patch.object(node_cooldown.time,'time',side_effect=lambda:clock[0]):
+                    node_cooldown.guarded_request(lambda:(200,'persona'),lambda r:r[0],sleeper=sleep)
+                    node_cooldown.guarded_request(lambda:(200,'report'),lambda r:r[0],sleeper=sleep)
+                self.assertGreaterEqual(sum(waits),10)
+                self.assertEqual(json.loads(node_cooldown.STATE.read_text())['last_request_epoch'],1010.0)
+    def test_429_retains_last_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(node_cooldown,'STATE',Path(directory)/'gate.json'):
+                node_cooldown.guarded_request(lambda:(429,None),lambda r:r[0])
+                self.assertIn('last_request_epoch',json.loads(node_cooldown.STATE.read_text()))
