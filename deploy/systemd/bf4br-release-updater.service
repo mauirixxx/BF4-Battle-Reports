@@ -8,5 +8,5 @@ Type=oneshot
 User=root
 WorkingDirectory=/opt/bf4br
 ExecStart=/opt/bf4br/.venv/bin/python -m bf4br.fleet_upgrade --deploy
-TimeoutStartSec=240
+TimeoutStartSec=900
 NoNewPrivileges=true
