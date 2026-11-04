@@ -12,6 +12,8 @@ def main(argv=None):
     setcmd=sub.add_parser("set")
     setcmd.add_argument("--persona-workers",type=int)
     setcmd.add_argument("--report-workers",type=int)
+    setcmd.add_argument("--request-interval-seconds",type=int)
+    setcmd.add_argument("--http-429-cooldown-seconds",type=int)
     sub.add_parser("pause")
     sub.add_parser("resume")
     args=parser.parse_args(argv)
@@ -19,11 +21,15 @@ def main(argv=None):
     if not dsn:
         parser.error("BF4BR_DSN must be set explicitly")
     if args.command=="set":
-        if args.persona_workers is None and args.report_workers is None:
+        if all(x is None for x in (args.persona_workers,args.report_workers,args.request_interval_seconds,args.http_429_cooldown_seconds)):
             parser.error("set requires at least one worker count")
         for count in (args.persona_workers,args.report_workers):
             if count is not None and not 0 <= count <= 64:
                 parser.error("worker count must be between 0 and 64")
+        if args.request_interval_seconds is not None and not 1 <= args.request_interval_seconds <= 3600:
+            parser.error("request interval must be 1..3600 seconds")
+        if args.http_429_cooldown_seconds is not None and not 30 <= args.http_429_cooldown_seconds <= 86400:
+            parser.error("429 cooldown must be 30..86400 seconds")
     with psycopg.connect(dsn,autocommit=True) as conn:
         with conn.transaction():
             with conn.cursor() as cur:
@@ -33,16 +39,18 @@ def main(argv=None):
                     cur.execute("""UPDATE bf4br_node_controls SET
                         persona_workers=COALESCE(%s,persona_workers),
                         report_workers=COALESCE(%s,report_workers),
+                        request_interval_seconds=COALESCE(%s,request_interval_seconds),
+                        http_429_cooldown_seconds=COALESCE(%s,http_429_cooldown_seconds),
                         updated_at=now() WHERE node_name=%s""",
-                        (args.persona_workers,args.report_workers,args.node))
+                        (args.persona_workers,args.report_workers,args.request_interval_seconds,args.http_429_cooldown_seconds,args.node))
                 elif args.command in ("pause","resume"):
                     cur.execute("""UPDATE bf4br_node_controls
                         SET paused=%s,updated_at=now() WHERE node_name=%s""",
                         (args.command=="pause",args.node))
-                cur.execute("""SELECT node_name,persona_workers,report_workers,paused,
+                cur.execute("""SELECT node_name,persona_workers,report_workers,paused,request_interval_seconds,http_429_cooldown_seconds,
                     updated_at FROM bf4br_node_controls WHERE node_name=%s""",(args.node,))
                 row=cur.fetchone()
-    print(f"node={row[0]} persona_workers={row[1]} report_workers={row[2]} paused={row[3]} updated_at={row[4]}")
+    print(f"node={row[0]} persona_workers={row[1]} report_workers={row[2]} paused={row[3]} request_interval_seconds={row[4]} http_429_cooldown_seconds={row[5]} updated_at={row[6]}")
 
 if __name__=="__main__":
     main()
