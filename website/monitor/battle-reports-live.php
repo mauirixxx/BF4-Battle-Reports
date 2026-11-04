@@ -28,14 +28,15 @@ echo json_encode(['time'=>gmdate('c'),
 <section class="panel"><h2>Worker systemd warnings and exceptions</h2><p class="muted" id="journal-age">Checking journal snapshots</p><div class="scroll"><table><thead><tr><th>Node</th><th>Journal entry (last 10 minutes)</th></tr></thead><tbody id="journals"></tbody></table></div></section>
 <div class="grid processing-grid"><section class="panel"><h2>Personas currently being processed</h2><div class="scroll"><table><thead><tr><th>Platform</th><th>Player name</th><th>Persona ID</th><th>Worker</th><th>Claimed (local)</th></tr></thead><tbody id="personas"></tbody></table></div></section><section class="panel"><h2>Reports currently being processed</h2><div class="scroll"><table><thead><tr><th>Platform</th><th>Report ID</th><th>Worker</th><th>Claimed (local)</th></tr></thead><tbody id="jobs"></tbody></table></div></section></div>
 <section class="panel"><h2>Incoming battle reports · latest 60</h2><div class="scroll"><table><thead><tr><th>Imported (local)</th><th>Match played (local)</th><th>Platform</th><th>Report ID</th><th>Scoreboard</th></tr></thead><tbody id="new"></tbody></table></div></section><p class="muted">A lease means a worker claimed the job, not necessarily that a network request is underway. Match dates come from locally recorded Battlelog discovery timestamps; missing timestamps display a dash. Names reflect the latest locally recorded player name. Read-only public monitor.</p></div><?php bf4br_footer(); ?><script>
-const el=id=>document.getElementById(id),names={1:'PC',32:'PlayStation',64:'Xbox'},cls={1:'pc',32:'ps',64:'xb'};let paused=false,busy=false,last=null;
+const el=id=>document.getElementById(id),names={1:'PC',32:'PlayStation',64:'Xbox'},cls={1:'pc',32:'ps',64:'xb'};let paused=false,busy=false,last=null,serverClockOffset=0;
 const safe=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const plat=v=>'<span class="'+(cls[v]||'')+'">'+safe(names[v]||v)+'</span>';
 const parseTime=v=>{if(!v)return NaN;const normalized=String(v).replace(' ','T').replace(/\.(\d{3})\d+/,'.$1').replace(/([+-]\d{2})$/,'$1:00');return Date.parse(normalized);};
 const date=v=>{if(!v)return '—';const t=new Date(parseTime(v));return Number.isNaN(t.getTime())?'—':t.toLocaleString(undefined,{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true,timeZoneName:'short'});};
-const age=v=>{if(!v)return '—';let s=Math.max(0,Math.floor((Date.now()-parseTime(v))/1000));return s<60?s+'s ago':Math.floor(s/60)+'m ago';};
+const age=v=>{if(!v)return '—';let s=Math.max(0,Math.floor((Date.now()+serverClockOffset-parseTime(v))/1000));return s<60?s+'s ago':Math.floor(s/60)+'m ago';};
 function fill(id,data,fn,cols){el(id).innerHTML=data.length?data.map(fn).join(''):'<tr><td colspan="'+cols+'" class="muted">No active jobs</td></tr>';}
 function render(d){
+if(d.time){const serverTime=parseTime(d.time);if(Number.isFinite(serverTime))serverClockOffset=serverTime-Date.now();}
 el('version-age').textContent='Versions checked '+age(d.versions?.updated_at)+' · refresh every minute';
 el('journal-age').textContent='Journal checked '+age(d.journals?.updated_at);
 fill('journals',d.journals?.entries||[],r=>'<tr><td>'+safe(r.node)+'</td><td class="name">'+safe(r.message)+'</td></tr>',2);
