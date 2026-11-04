@@ -55,6 +55,31 @@ def import_day(source, target, day: date, *, batch_size=500):
                         ON CONFLICT DO NOTHING''',(day,platform,persona))
                     total+=cur.rowcount
                 cur.execute('UPDATE bf4br_daily_windows SET last_import_at=now() WHERE day_utc=%s',(day,))
+    # Separate bounded overlap pass for sessions that started before midnight.
+    # The Battlelog report timestamp, not the session date, determines final attribution.
+    overlap_id=0
+    while True:
+        with source.cursor() as cur:
+            cur.execute('''SELECT id,platform,persona_id FROM bf4_player_sessions
+                WHERE id>%s AND time_joined<%s AND COALESCE(time_left,last_seen)>=%s
+                ORDER BY id LIMIT %s''',(overlap_id,start,start,batch_size))
+            rows=cur.fetchall()
+        if not rows:
+            break
+        overlap_id=rows[-1][0]
+        with target.transaction():
+            with target.cursor() as cur:
+                for _,label,persona in rows:
+                    platform=platform_code(label)
+                    if platform is None:
+                        unknown+=1
+                    elif persona is None or int(persona)<=0:
+                        missing+=1
+                    else:
+                        cur.execute('''INSERT INTO bf4br_daily_persona_jobs
+                            (day_utc,platform,persona_id) VALUES (%s,%s,%s)
+                            ON CONFLICT DO NOTHING''',(day,platform,int(persona)))
+                        total+=cur.rowcount
     # Replace, do not increment, counters on repeated imports.
     with target.transaction():
         with target.cursor() as cur:
