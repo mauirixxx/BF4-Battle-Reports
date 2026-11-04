@@ -25,3 +25,7 @@ class ControlIntegration(unittest.TestCase):
         self.assertIn("report_workers=10",self.run_cli("set","--report-workers","10"))
         self.assertIn("paused=True",self.run_cli("pause"))
         self.assertIn("paused=False",self.run_cli("resume"))
+        self.assertIn("request_interval_seconds=15",self.run_cli("set","--request-interval-seconds","15"))
+        self.assertIn("http_429_cooldown_seconds=240",self.run_cli("set","--http-429-cooldown-seconds","240"))
+        self.assertIn("request_interval_seconds=15",self.run_cli("show"))
+        self.assertIn("http_429_cooldown_seconds=240",self.run_cli("show"))
