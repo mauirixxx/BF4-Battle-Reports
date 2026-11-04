@@ -1,0 +1,8 @@
+[Unit]
+Description=Refresh BF4BR worker journal error snapshot
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+[Install]
+WantedBy=timers.target
