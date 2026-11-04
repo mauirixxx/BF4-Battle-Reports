@@ -13,7 +13,8 @@ from pathlib import Path
 
 LOG = logging.getLogger(__name__)
 STATE = Path(os.environ.get('BF4BR_COOLDOWN_FILE', '/tmp/bf4br-battlelog-cooldown.json'))
-DEFAULT_SECONDS = 120
+DEFAULT_SECONDS = 180
+MIN_REQUEST_INTERVAL_SECONDS = 10
 
 
 def guarded_request(fn, status_of, retry_after_of=lambda result: None, sleeper=time.sleep, on_wait=None):
@@ -27,8 +28,13 @@ def guarded_request(fn, status_of, retry_after_of=lambda result: None, sleeper=t
                     state = json.loads(STATE.read_text())
                 except (FileNotFoundError, ValueError, OSError):
                     state = {}
-                remaining = float(state.get('until_epoch', 0)) - time.time()
+                now = time.time()
+                remaining = max(float(state.get('until_epoch', 0)) - now, float(state.get('last_request_epoch', 0)) + MIN_REQUEST_INTERVAL_SECONDS - now)
                 if remaining <= 0:
+                    state['last_request_epoch'] = time.time()
+                    tmp = STATE.with_name(STATE.name + '.tmp.' + str(os.getpid()))
+                    tmp.write_text(json.dumps(state))
+                    os.replace(tmp, STATE)
                     result = fn()
                     status = status_of(result)
                     if status == 429:
@@ -38,9 +44,8 @@ def guarded_request(fn, status_of, retry_after_of=lambda result: None, sleeper=t
                         seconds = max(DEFAULT_SECONDS, hinted or 0)
                         until = time.time() + seconds
                         tmp = STATE.with_name(STATE.name + '.tmp.' + str(os.getpid()))
-                        tmp.write_text(json.dumps({'until_epoch': until, 'status': 429,
-                            'retry_after': header, 'cooldown_seconds': seconds,
-                            'updated_at': datetime.now(timezone.utc).isoformat()}))
+                        state.update({'until_epoch': until, 'status': 429, 'retry_after': header, 'cooldown_seconds': seconds, 'updated_at': datetime.now(timezone.utc).isoformat()})
+                        tmp.write_text(json.dumps(state))
                         os.replace(tmp, STATE)
                         LOG.warning('Battlelog node cooldown HTTP 429 retry_after=%r cooldown_seconds=%.1f until=%s',
                                     header, seconds, datetime.fromtimestamp(until, timezone.utc).isoformat())
