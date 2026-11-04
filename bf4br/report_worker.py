@@ -7,7 +7,7 @@ import time
 import psycopg
 from bf4br.queue import claim,renew,release
 from bf4br.report_fetch import fetch,fetch_with_headers
-from bf4br.node_cooldown import guarded_request
+from bf4br.node_cooldown import guarded_request,wait_until_clear
 from bf4br.report_store import archive,recover
 from bf4br.report_import import import_archived
 
@@ -78,6 +78,7 @@ def main():
     worker=os.environ.get("BF4BR_WORKER_ID",f"report-{os.getpid()}")
     with psycopg.connect(os.environ["BF4BR_DSN"],autocommit=True) as conn:
         while not STOP:
+            wait_until_clear()
             claimed=claim(conn,"report",worker,120,platform=int(os.environ["BF4BR_PLATFORM"]) if os.environ.get("BF4BR_PLATFORM") else None)
             if claimed is None:
                 time.sleep(3)
