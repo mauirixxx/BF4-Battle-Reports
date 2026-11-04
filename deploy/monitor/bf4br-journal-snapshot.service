@@ -1,0 +1,5 @@
+[Unit]
+Description=Read BF4BR worker warning and error journals for monitor
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/sbin/bf4br-journal-snapshot
