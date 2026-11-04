@@ -44,6 +44,9 @@ def main():
                         ORDER BY node_name""")
                     nodes=[r[0] for r in cur.fetchall()]
                 rank=nodes.index(node) if node in nodes else 0
+                daily_platform = int(os.environ["BF4BR_DAILY_PLATFORM"]) if os.environ.get("BF4BR_DAILY_PLATFORM") else None
+                if daily_platform not in (None,1,32,64):
+                    raise ValueError("unsupported daily platform")
                 for kind,desired in (("persona",persona_target),("report",report_target)):
                     target=0 if paused else desired
                     running=[pid for pid,(_,k,draining) in children.items()
@@ -65,7 +68,11 @@ def main():
                             env["BF4BR_PLATFORM"]=str(preferred)
                         else:
                             env.pop("BF4BR_PLATFORM",None)
-                        process=subprocess.Popen([sys.executable,"-m",f"bf4br.{kind}_worker"],env=env)
+                        module=f"bf4br.{kind}_worker"
+                        if kind=="persona" and daily_platform is not None and target==1:
+                            module="bf4br.daily_persona_worker"
+                            env["BF4BR_PLATFORM"]=str(daily_platform)
+                        process=subprocess.Popen([sys.executable,"-m",module],env=env)
                         children[process.pid]=(process,kind,False)
                         running.append(process.pid)
                         LOG.info("started %s worker pid=%s",kind,process.pid)
