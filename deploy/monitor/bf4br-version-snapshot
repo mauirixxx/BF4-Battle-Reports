@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+import json, subprocess, os, tempfile, datetime
+hosts=['hnl-01','hnl-02','hnl-03','kah-01','mak-01','mak-02','mak-03','mak-04','mak-05','rnt-01']
+versions={}
+cooldowns={}
+for host in hosts:
+    try:
+        r=subprocess.run(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=2',host,'readlink -f /opt/bf4br'],capture_output=True,text=True,timeout=5)
+        versions[host]=os.path.basename(r.stdout.strip()) if r.returncode==0 and r.stdout.strip() else 'unreachable'
+    except Exception:
+        versions[host]='unreachable'
+    try:
+        c=subprocess.run(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=2',host,'cat /tmp/bf4br-battlelog-cooldown.json'],capture_output=True,text=True,timeout=5)
+        if c.returncode==0: cooldowns[host]=json.loads(c.stdout)
+    except (Exception,ValueError): pass
+path='/var/cache/bf4br-node-versions.json'
+fd,tmp=tempfile.mkstemp(prefix='.bf4br-versions-',dir='/var/cache')
+with os.fdopen(fd,'w') as f:
+    json.dump({'updated_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'versions':versions,'cooldowns':cooldowns},f)
+os.chmod(tmp,0o644)
+os.replace(tmp,path)
