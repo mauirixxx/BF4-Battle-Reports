@@ -6,7 +6,8 @@ import signal
 import time
 import psycopg
 from bf4br.queue import claim,renew,release
-from bf4br.report_fetch import fetch
+from bf4br.report_fetch import fetch,fetch_with_headers
+from bf4br.node_cooldown import guarded_request
 from bf4br.report_store import archive,recover
 from bf4br.report_import import import_archived
 
@@ -29,7 +30,11 @@ def process_one(conn,job,token,fetcher=fetch,sleeper=time.sleep):
             if not renew(conn,"report",platform,rid,token,120):
                 raise RuntimeError("lease lost")
             try:
-                status,payload,error=fetcher(platform,rid)
+                if fetcher is fetch:
+                    status,payload,error,hint=guarded_request(
+                        lambda:fetch_with_headers(platform,rid),lambda r:r[0],lambda r:r[3])
+                else:
+                    status,payload,error=fetcher(platform,rid)
             except (OSError,TimeoutError) as exc:
                 status,payload,error=0,None,str(exc)
             if status==200 and payload is not None:
@@ -38,6 +43,10 @@ def process_one(conn,job,token,fetcher=fetch,sleeper=time.sleep):
                     break
                 except ValueError as exc:
                     error=str(exc)
+            if status==429:
+                release(conn,'report',platform,rid,token,delay_seconds=1200,
+                        error='HTTP 429')
+                return 'rate_limited'
             if attempt<2:
                 base=min(60,2*(2**attempt))
                 sleeper(random.uniform(base*.5,base*1.5))
