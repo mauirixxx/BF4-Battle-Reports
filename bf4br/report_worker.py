@@ -55,6 +55,11 @@ def process_one(conn,job,token,fetcher=fetch,sleeper=time.sleep):
         return "import_retry"
     if not release(conn,"report",platform,rid,token,done=True):
         raise RuntimeError("report lease lost after import")
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.execute("""UPDATE bf4br_daily_report_jobs SET state='done',
+                lease_owner=NULL,lease_token=NULL,lease_until=NULL,updated_at=now()
+                WHERE platform=%s AND battlelog_report_id=%s AND state<>'done'""",(platform,rid))
     return "imported"
 
 def main():
