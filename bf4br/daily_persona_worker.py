@@ -8,6 +8,9 @@ import psycopg
 from bf4br.daily_queue import claim, renew, release
 from bf4br.persona_worker import get_page
 from bf4br.retry import retry_delay
+from bf4br.node_cooldown import guarded_request
+from bf4br.persona_worker import process_one as process_historical
+from bf4br.queue import claim as claim_historical, release as release_historical
 
 LOG = logging.getLogger(__name__)
 STOP = False
@@ -79,7 +82,7 @@ def process_one(conn, day, platform, persona, token):
         if not renew(conn,'persona',day,platform,persona,token):
             raise RuntimeError('daily lease lost')
         try:
-            status,payload,hint = get_page(persona,platform,cursor)
+            status,payload,hint = guarded_request(lambda: get_page(persona,platform,cursor), lambda r:r[0], lambda r:r[2])
         except (OSError,ValueError,TimeoutError) as exc:
             release(conn,'persona',day,platform,persona,token,delay_seconds=120,error=str(exc)[:160])
             return
@@ -110,7 +113,16 @@ def main():
                     ORDER BY day_utc DESC LIMIT 1''',(platform,))
                 row=cur.fetchone()
             if row is None:
-                time.sleep(3)
+                historical=claim_historical(conn,'persona',worker,120,platform=platform)
+                if historical:
+                    job,token=historical
+                    try:
+                        process_historical(conn,job,token)
+                    except Exception:
+                        LOG.exception('historical fallback failed platform=%s persona=%s',*job)
+                        release_historical(conn,'persona',*job,token,delay_seconds=120,error='fallback worker exception')
+                else:
+                    time.sleep(3)
                 continue
             day=row[0]
             job=claim(conn,'persona',day,platform,worker)
