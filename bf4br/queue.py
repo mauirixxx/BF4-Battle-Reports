@@ -47,15 +47,26 @@ def release(conn, kind, platform, item, token, delay_seconds=0, error=None, done
     table, key = QUEUES[kind]
     with conn.transaction():
         with conn.cursor() as cur:
+            cur.execute(f"""SELECT lease_owner FROM {table} WHERE platform=%s AND {key}=%s
+                AND state='leased' AND lease_token=%s AND lease_until>now() FOR UPDATE""",(platform,item,token))
+            owner_row=cur.fetchone()
             cur.execute(f"""UPDATE {table}
                 SET state=%s,next_attempt_at=now()+(%s * interval '1 second'),
                     lease_owner=NULL,lease_token=NULL,lease_until=NULL,
                     failures=failures+(%s::integer),last_error=%s,updated_at=now()
                 WHERE platform=%s AND {key}=%s AND state='leased'
-                  AND lease_token=%s AND lease_until>now()""",
+                  AND lease_token=%s AND lease_until>now() RETURNING platform""",
                 ('done' if done else 'ready',delay_seconds,1 if error else 0,
                  error,platform,item,token))
-            return cur.rowcount == 1
+            row=cur.fetchone()
+            if row and error:
+                worker=owner_row[0] if owner_row and owner_row[0] else 'unattributed'
+                node=worker.rsplit('-',2)[0] if '-persona-' in worker or '-report-' in worker else worker
+                cur.execute("""INSERT INTO bf4br_collector_error_history
+                    (node_name,worker_id,job_kind,platform,item_id,error_message)
+                    VALUES (%s,%s,%s,%s,%s,%s)""",
+                    (node,worker,'historical_persona' if kind=='persona' else 'report',platform,item,str(error)))
+            return row is not None
 
 def seed(conn, limit=1000, persona_limit=None, report_limit=None):
     """Incrementally enqueue existing identities and report IDs."""
