@@ -60,3 +60,26 @@ class NodePacingTests(unittest.TestCase):
             with patch.object(node_cooldown,'STATE',Path(directory)/'gate.json'):
                 node_cooldown.guarded_request(lambda:(429,None),lambda r:r[0])
                 self.assertIn('last_request_epoch',json.loads(node_cooldown.STATE.read_text()))
+
+class LivePolicyTests(unittest.TestCase):
+    def test_valid_policy_and_invalid_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'policy.json'
+            with patch.object(node_cooldown,'POLICY',path):
+                self.assertEqual(node_cooldown.policy_values(),(10,180))
+                path.write_text(json.dumps({'request_interval_seconds':15,'http_429_cooldown_seconds':240}))
+                self.assertEqual(node_cooldown.policy_values(),(15,240))
+                path.write_text('{bad json')
+                self.assertEqual(node_cooldown.policy_values(),(10,180))
+    def test_live_policy_change_affects_next_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state=Path(directory)/'state.json'
+            policy=Path(directory)/'policy.json'
+            policy.write_text(json.dumps({'request_interval_seconds':10,'http_429_cooldown_seconds':180}))
+            now=[1000.0]
+            with patch.object(node_cooldown,'STATE',state), patch.object(node_cooldown,'POLICY',policy):
+                with patch.object(node_cooldown.time,'time',side_effect=lambda:now[0]):
+                    node_cooldown.guarded_request(lambda:(200,),lambda r:r[0])
+                    policy.write_text(json.dumps({'request_interval_seconds':20,'http_429_cooldown_seconds':240}))
+                    node_cooldown.guarded_request(lambda:(200,),lambda r:r[0],sleeper=lambda seconds:now.__setitem__(0,now[0]+seconds))
+                self.assertEqual(now[0],1020.0)
