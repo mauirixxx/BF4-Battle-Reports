@@ -30,6 +30,8 @@ class NodeCooldownConcurrencyTests(unittest.TestCase):
             with patch.object(node_cooldown,'STATE',path):
                 node_cooldown.guarded_request(lambda:(429,None),lambda r:r[0])
                 state=json.loads(path.read_text())
+                state["last_request_epoch"] = 0
+                path.write_text(json.dumps(state))
                 calls=[]
                 def advance(seconds):
                     calls.append(seconds)
