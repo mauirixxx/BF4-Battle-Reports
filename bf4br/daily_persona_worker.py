@@ -8,7 +8,7 @@ import psycopg
 from bf4br.daily_queue import claim, renew, release
 from bf4br.persona_worker import get_page
 from bf4br.retry import retry_delay
-from bf4br.node_cooldown import guarded_request
+from bf4br.node_cooldown import guarded_request,wait_until_clear
 from bf4br.persona_worker import process_one as process_historical
 from bf4br.queue import claim as claim_historical, release as release_historical
 
@@ -82,7 +82,8 @@ def process_one(conn, day, platform, persona, token):
         if not renew(conn,'persona',day,platform,persona,token):
             raise RuntimeError('daily lease lost')
         try:
-            status,payload,hint = guarded_request(lambda: get_page(persona,platform,cursor), lambda r:r[0], lambda r:r[2])
+            status,payload,hint = guarded_request(lambda: get_page(persona,platform,cursor), lambda r:r[0], lambda r:r[2],
+                on_wait=lambda: renew(conn,"persona",day,platform,persona,token) or (_ for _ in ()).throw(RuntimeError("daily lease lost during cooldown")))
         except (OSError,ValueError,TimeoutError) as exc:
             release(conn,'persona',day,platform,persona,token,delay_seconds=120,error=str(exc)[:160])
             return
@@ -105,6 +106,7 @@ def main():
     worker = os.environ.get('BF4BR_WORKER_ID',f'daily-{os.getpid()}')
     with psycopg.connect(os.environ['BF4BR_DSN'],autocommit=True) as conn:
         while not STOP:
+            wait_until_clear()
             with conn.cursor() as cur:
                 cur.execute('''SELECT day_utc FROM bf4br_daily_persona_jobs
                     WHERE platform=%s AND day_utc < (now() AT TIME ZONE 'UTC')::date
