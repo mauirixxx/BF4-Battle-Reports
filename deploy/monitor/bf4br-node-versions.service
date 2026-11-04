@@ -1,0 +1,5 @@
+[Unit]
+Description=Snapshot BF4BR worker release versions for live monitor
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/sbin/bf4br-version-snapshot
