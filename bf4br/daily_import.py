@@ -17,23 +17,25 @@ def import_day(source, target, day: date, *, batch_size=500):
     start=datetime.combine(day,time.min,tzinfo=timezone.utc)
     end=start+timedelta(days=1)
     # Keyset pagination avoids OFFSET scans and bounds memory usage.
+    last_time=start
     last_id=0
     total=0
     missing=0
     unknown=0
     while True:
         with source.cursor() as cur:
-            cur.execute('''SELECT id,platform,persona_id FROM bf4_player_sessions
-                WHERE id>%s AND time_joined<%s
-                  AND COALESCE(time_left,last_seen)>=%s
-                ORDER BY id LIMIT %s''',(last_id,end,start,batch_size))
+            cur.execute('''SELECT id,platform,persona_id,time_joined FROM bf4_player_sessions
+                WHERE time_joined >= %s AND time_joined < %s
+                  AND (time_joined,id) > (%s,%s)
+                ORDER BY time_joined,id LIMIT %s''',(start,end,last_time,last_id,batch_size))
             rows=cur.fetchall()
         if not rows: break
         last_id=rows[-1][0]
+        last_time=rows[-1][3]
         personas=set()
         batch_missing=0
         batch_unknown=0
-        for _,label,persona in rows:
+        for _,label,persona,_ in rows:
             platform=platform_code(label)
             if platform is None:
                 batch_unknown+=1
