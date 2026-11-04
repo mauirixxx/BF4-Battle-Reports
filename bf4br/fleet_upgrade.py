@@ -20,6 +20,7 @@ from bf4br.release_coordinator import latest_release, tag_sha
 LOCK = Path("/run/lock/bf4br-fleet-deploy.lock")
 STATE = Path("/var/lib/bf4br-deployer/approved.json")
 REPO = "/opt/bf4br"
+PAUSE_STATE = Path("/var/lib/bf4br-deployer/updater-pauses.json")
 
 
 def run(args, **kwargs):
@@ -137,6 +138,55 @@ def drain(host, timeout=100):
     raise TimeoutError("node did not drain database leases")
 
 
+
+def paused(host):
+    query = ('import psycopg,sys; '
+             'c=psycopg.connect("dbname=bf4_battle_reports user=postgres"); '
+             'r=c.execute("SELECT paused FROM bf4br_node_controls WHERE node_name=%s",(sys.argv[1],)).fetchone(); '
+             'print(int(bool(r and r[0])))')
+    return subprocess.check_output(['runuser','-u','postgres','--',REPO+'/.venv/bin/python',
+                                    '-c',query,host],text=True,timeout=15).strip() == '1'
+
+
+def pause_records():
+    if not PAUSE_STATE.exists():
+        return {}
+    data=json.loads(PAUSE_STATE.read_text())
+    if not isinstance(data,dict):
+        raise ValueError('invalid updater pause journal')
+    return data
+
+
+def record_pause(host,version,sha):
+    data=pause_records()
+    data[host]={'version':version,'sha':sha}
+    PAUSE_STATE.parent.mkdir(parents=True,exist_ok=True)
+    tmp=PAUSE_STATE.with_suffix('.tmp')
+    tmp.write_text(json.dumps(data,sort_keys=True)+'\n')
+    os.replace(tmp,PAUSE_STATE)
+
+
+def clear_pause_record(host):
+    data=pause_records()
+    if host in data:
+        del data[host]
+        tmp=PAUSE_STATE.with_suffix('.tmp')
+        tmp.write_text(json.dumps(data,sort_keys=True)+'\n')
+        os.replace(tmp,PAUSE_STATE)
+
+
+def recover_completed_pause(host,version,sha):
+    entry=pause_records().get(host)
+    if entry is None:
+        return False
+    if entry != {'version':version,'sha':sha}:
+        raise RuntimeError(f'{host}: updater pause journal belongs to a different release')
+    if paused(host):
+        control('resume',host)
+    clear_pause_record(host)
+    return True
+
+
 def deploy():
     if os.geteuid() != 0:
         raise PermissionError("coordinator must run as root")
@@ -160,18 +210,17 @@ def deploy():
                 else:
                     # Pre-existing manually installed v1.0.1 node: verify immutable artifact marker.
                     run(ssh + [f"grep -qx '{sha}' /opt/bf4br-releases/{version}/.bf4br-release-sha"])
-                results.append({"host": host, "status": "already_current"})
+                recovered=recover_completed_pause(host,version,sha)
+                results.append({"host": host, "status": "resumed_after_upgrade" if recovered else "already_current"})
                 continue
             stage(version, sha, host)
             run(["scp", "-q", "-o", "BatchMode=yes", "-o",
                  "StrictHostKeyChecking=yes", f"{REPO}/bf4br/release_switch.py",
                  f"{host}:/root/bf4br-release-switch.py"])
             # Respect operator pauses that existed before the upgrade.
-            was_paused = subprocess.check_output(
-                ['runuser','-u','postgres','--',REPO+'/.venv/bin/python',
-                 '-c', 'import psycopg,sys; c=psycopg.connect("dbname=bf4_battle_reports user=postgres"); q=c.execute("SELECT paused FROM bf4br_node_controls WHERE node_name=%s",(sys.argv[1],)); r=q.fetchone(); print(int(bool(r and r[0])))', host],
-                text=True, timeout=15).strip() == '1'
+            was_paused = paused(host)
             if not was_paused:
+                record_pause(host,version,sha)
                 control("pause", host)
             try:
                 drain(host)
@@ -182,6 +231,7 @@ def deploy():
             finally:
                 if not was_paused:
                     control("resume", host)
+                    clear_pause_record(host)
         STATE.parent.mkdir(parents=True, exist_ok=True)
         STATE.write_text(json.dumps({"hosts": hosts, "version": version,
                                      "sha": sha, "results": results}) + "\n")
