@@ -29,7 +29,7 @@ class QueueIntegration(unittest.TestCase):
 
     def setUp(self):
         with self.admin.cursor() as cur:
-            cur.execute("TRUNCATE bf4br_persona_jobs,bf4br_report_jobs,bf4br_node_controls")
+            cur.execute("TRUNCATE bf4br_persona_jobs,bf4br_report_jobs,bf4br_worker_assignments,bf4br_node_heartbeats,bf4br_node_controls")
 
     def insert(self, kind, count):
         table, key = ("bf4br_persona_jobs","persona_id") if kind == "persona" else ("bf4br_report_jobs","battlelog_report_id")
@@ -96,6 +96,7 @@ class QueueIntegration(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+@unittest.skipUnless(DSN,"isolated PostgreSQL test required")
 class PlatformFairnessIntegration(unittest.TestCase):
     def test_platform_filter_and_report_claim(self):
         with psycopg.connect(DSN,autocommit=True) as conn:

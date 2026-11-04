@@ -19,6 +19,7 @@ class ControlIntegration(unittest.TestCase):
             with conn.cursor() as cur:
                 cur.execute("SELECT current_database()")
                 self.assertEqual(cur.fetchone()[0],"bf4br_integration")
+        self.run_cli("set","--persona-workers","3")
         self.assertIn("persona_workers=3",self.run_cli("show"))
         self.assertIn("persona_workers=7",self.run_cli("set","--persona-workers","7"))
         self.assertIn("report_workers=10",self.run_cli("set","--report-workers","10"))

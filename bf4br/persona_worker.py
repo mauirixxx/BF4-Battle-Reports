@@ -12,6 +12,7 @@ import psycopg
 from bf4br.queue import claim, renew, release
 from bf4br.persona_store import persist_page
 from bf4br.retry import retry_delay
+from bf4br.assignment_planner import next_platform
 
 LOG=logging.getLogger("bf4br.persona")
 STOP=False
@@ -95,10 +96,17 @@ def main():
     signal.signal(signal.SIGINT,stop)
     dsn=os.environ["BF4BR_DSN"]
     worker=os.environ.get("BF4BR_WORKER_ID",f"persona-{os.getpid()}")
+    rotating=os.environ.get('BF4BR_ROTATING') == '1'
+    if rotating and os.environ.get('BF4BR_PLATFORM'):
+        raise ValueError('rotating persona must not have a fixed platform')
+    platform=next_platform(None) if rotating else (int(os.environ['BF4BR_PLATFORM']) if os.environ.get('BF4BR_PLATFORM') else None)
     with psycopg.connect(dsn,autocommit=True) as conn:
         while not STOP:
-            job=claim(conn,"persona",worker,120,platform=int(os.environ["BF4BR_PLATFORM"]) if os.environ.get("BF4BR_PLATFORM") else None)
+            job=claim(conn,"persona",worker,120,platform=platform)
             if not job:
+                # An empty platform must not strand the flexible tenth slot.
+                if rotating:
+                    platform=next_platform(platform)
                 time.sleep(3)
                 continue
             row,token=job
@@ -112,6 +120,11 @@ def main():
                 except Exception:
                     LOG.exception("failed to release job")
                 time.sleep(3)
+            finally:
+                # Advance only after the claimed persona finishes, releases,
+                # or fails. Never switch platform while holding its lease.
+                if rotating:
+                    platform=next_platform(platform)
 
 if __name__=="__main__":
     main()

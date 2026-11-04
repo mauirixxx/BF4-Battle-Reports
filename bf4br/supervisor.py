@@ -5,7 +5,10 @@ import signal
 import subprocess
 import sys
 import time
+from uuid import uuid4
 import psycopg
+from bf4br.fleet_coordination import heartbeat
+from bf4br.supervisor_assignment import read_assignment, desired_specs, worker_module
 
 LOG=logging.getLogger("bf4br.supervisor")
 STOP=False
@@ -21,10 +24,21 @@ def main():
     node=os.environ.get("BF4BR_NODE",os.uname().nodename)
     children={}
     serial=0
+    coordinated=os.environ.get('BF4BR_COORDINATED') == '1'
+    # A coordinated node must advertise health or it will never be assigned.
+    heartbeat_enabled=coordinated or os.environ.get('BF4BR_ENABLE_HEARTBEATS') == '1'
+    active_specs={}
+    instance_id=uuid4()
+    last_heartbeat=0.0
     slots=(1,32,64)
-    with psycopg.connect(dsn,autocommit=True) as conn:
+    conn=None
+    try:
         while not STOP:
             try:
+                if conn is None or conn.closed:
+                    conn=psycopg.connect(dsn,autocommit=True,connect_timeout=5)
+                    last_heartbeat=0.0
+                    LOG.info('supervisor database connection established')
                 with conn.transaction():
                     with conn.cursor() as cur:
                         cur.execute("""INSERT INTO bf4br_node_controls(node_name)
@@ -36,6 +50,17 @@ def main():
                     if process.poll() is not None:
                         LOG.info("worker exited pid=%s status=%s",pid,process.returncode)
                         del children[pid]
+                        active_specs.pop(pid,None)
+                # Opt-in heartbeat; default remains the v1.0.5 behavior.
+                # Heartbeat failure never interrupts existing collector jobs.
+                if heartbeat_enabled and time.monotonic()-last_heartbeat >= 10:
+                    try:
+                        heartbeat(conn,node,instance_id,os.getpid(),
+                                  sum(k=='persona' and not draining for _,k,draining in children.values()),
+                                  sum(k=='report' and not draining for _,k,draining in children.values()))
+                        last_heartbeat=time.monotonic()
+                    except psycopg.Error:
+                        LOG.exception('heartbeat failed; collector jobs unchanged')
                 # Stable fleet-wide slot assignment from coordinator node registry.
                 # Each node with three persona workers contributes one per platform.
                 with conn.cursor() as cur:
@@ -47,7 +72,42 @@ def main():
                 daily_platform = int(os.environ["BF4BR_DAILY_PLATFORM"]) if os.environ.get("BF4BR_DAILY_PLATFORM") else None
                 if daily_platform not in (None,1,32,64):
                     raise ValueError("unsupported daily platform")
+                # Coordinated persona roles are opt-in. Report workers retain
+                # their existing independent configuration and pacing.
+                if coordinated:
+                    assignment=read_assignment(conn,node)
+                    specs=desired_specs(assignment,persona_target,paused)
+                    desired_spec=specs[0] if specs else None
+                    # Never overlap old and new persona jobs on one node.
+                    # Wait for the old process to exit after SIGTERM before
+                    # starting its replacement.
+                    for pid,(process,kind,draining) in list(children.items()):
+                        if kind!='persona' or draining:
+                            continue
+                        if active_specs.get(pid)!=desired_spec:
+                            process.terminate()
+                            children[pid]=(process,kind,True)
+                            LOG.info('draining persona for assignment change pid=%s',pid)
+                    active_persona=[pid for pid,(_,kind,_) in children.items() if kind=='persona']
+                    if desired_spec is not None and not active_persona:
+                        serial+=1
+                        env={**os.environ,'BF4BR_WORKER_ID':f'{node}-persona-{serial}'}
+                        if desired_spec.platform is None:
+                            env.pop('BF4BR_PLATFORM',None)
+                        else:
+                            env['BF4BR_PLATFORM']=str(desired_spec.platform)
+                        if desired_spec.role=='rotating':
+                            env['BF4BR_ROTATING']='1'
+                        else:
+                            env.pop('BF4BR_ROTATING',None)
+                        process=subprocess.Popen([sys.executable,'-m',worker_module(desired_spec)],env=env)
+                        children[process.pid]=(process,'persona',False)
+                        active_specs[process.pid]=desired_spec
+                        LOG.info('started coordinated persona pid=%s role=%s platform=%s',
+                                 process.pid,desired_spec.role,desired_spec.platform)
                 for kind,desired in (("persona",persona_target),("report",report_target)):
+                    if coordinated and kind=='persona':
+                        continue
                     target=0 if paused else desired
                     running=[pid for pid,(_,k,draining) in children.items()
                              if k==kind and not draining]
@@ -76,9 +136,20 @@ def main():
                         children[process.pid]=(process,kind,False)
                         running.append(process.pid)
                         LOG.info("started %s worker pid=%s",kind,process.pid)
+            except (psycopg.OperationalError,psycopg.InterfaceError):
+                LOG.exception('supervisor database connection lost; keeping existing workers')
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except psycopg.Error:
+                        pass
+                conn=None
             except (psycopg.Error,OSError):
                 LOG.exception("supervisor control loop failed; existing workers unchanged")
             time.sleep(3)
+    finally:
+        if conn is not None:
+            conn.close()
     LOG.info("supervisor stopping; draining children")
     for p,_,_ in children.values():
         if p.poll() is None:
