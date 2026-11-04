@@ -16,7 +16,7 @@ STATE = Path(os.environ.get('BF4BR_COOLDOWN_FILE', '/tmp/bf4br-battlelog-cooldow
 DEFAULT_SECONDS = 120
 
 
-def guarded_request(fn, status_of, retry_after_of=lambda result: None, sleeper=time.sleep):
+def guarded_request(fn, status_of, retry_after_of=lambda result: None, sleeper=time.sleep, on_wait=None):
     """Serialize Battlelog requests on one node; apply shared 429 cooldown."""
     STATE.parent.mkdir(parents=True, exist_ok=True)
     with open(str(STATE) + '.lock', 'a+') as lock:
@@ -47,4 +47,18 @@ def guarded_request(fn, status_of, retry_after_of=lambda result: None, sleeper=t
                     return result
             finally:
                 fcntl.flock(lock, fcntl.LOCK_UN)
+            if on_wait is not None:
+                on_wait()
             sleeper(min(remaining, 5))
+
+
+def wait_until_clear(sleeper=time.sleep):
+    """Wait before claiming a job so the 120-second lease is not spent waiting."""
+    while True:
+        try:
+            remaining = float(json.loads(STATE.read_text()).get('until_epoch', 0)) - time.time()
+        except (FileNotFoundError, ValueError, OSError):
+            return
+        if remaining <= 0:
+            return
+        sleeper(min(remaining, 5))
