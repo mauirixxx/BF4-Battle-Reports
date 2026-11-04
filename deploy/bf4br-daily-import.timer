@@ -1,0 +1,9 @@
+[Unit]
+Description=BF4BR UTC daily import after midnight
+[Timer]
+OnCalendar=*-*-* 00:05:00 UTC
+Persistent=true
+RandomizedDelaySec=0
+Unit=bf4br-daily-import.service
+[Install]
+WantedBy=timers.target
