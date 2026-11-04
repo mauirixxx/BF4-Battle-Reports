@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+"""Bounded, read-only BF4BR worker journal error snapshot for LAN monitor."""
+import datetime,json,os,re,subprocess,tempfile
+hosts=['hnl-01','hnl-02','hnl-03','kah-01','mak-01','mak-02','mak-03','mak-04','mak-05','rnt-01']
+items=[]
+for host in hosts:
+    try:
+        p=subprocess.run(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=2',host,'journalctl','-u','bf4br-supervisor.service','--since','10 minutes ago','--no-pager','-o','short-iso','-p','warning'],capture_output=True,text=True,timeout=6)
+        if p.returncode:
+            continue
+        for line in p.stdout.splitlines()[-30:]:
+            if not line.strip() or len(line)>4000:continue
+            items.append({'node':host,'message':line[-700:]})
+    except (OSError,subprocess.TimeoutExpired):pass
+items=items[-100:]
+fd,tmp=tempfile.mkstemp(prefix='.bf4br-journal-',dir='/var/cache')
+with os.fdopen(fd,'w') as f:json.dump({'updated_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'entries':items},f)
+os.chmod(tmp,0o644)
+os.replace(tmp,'/var/cache/bf4br-journal-errors.json')
