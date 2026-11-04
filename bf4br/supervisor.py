@@ -1,5 +1,7 @@
 """Node supervisor: dynamically resize persona workers without rebuilding image."""
 import logging
+import json
+from pathlib import Path
 import os
 import signal
 import subprocess
@@ -11,6 +13,20 @@ from bf4br.fleet_coordination import heartbeat
 from bf4br.supervisor_assignment import read_assignment, desired_specs, worker_module
 
 LOG=logging.getLogger("bf4br.supervisor")
+POLICY = Path(os.environ.get("BF4BR_REQUEST_POLICY_FILE", "/tmp/bf4br-request-policy.json"))
+
+def publish_request_policy(interval, cooldown):
+    """Atomic publication; never delete the last good policy on DB failure."""
+    if not (type(interval) is int and 1 <= interval <= 3600 and type(cooldown) is int and 30 <= cooldown <= 86400):
+        raise ValueError("invalid request policy")
+    POLICY.parent.mkdir(parents=True, exist_ok=True)
+    temp = POLICY.with_name(POLICY.name + ".tmp." + str(os.getpid()))
+    try:
+        temp.write_text(json.dumps({"request_interval_seconds": interval, "http_429_cooldown_seconds": cooldown}))
+        os.replace(temp, POLICY)
+    finally:
+        temp.unlink(missing_ok=True)
+
 STOP=False
 def stop(_signal,_frame):
     global STOP
@@ -43,9 +59,10 @@ def main():
                     with conn.cursor() as cur:
                         cur.execute("""INSERT INTO bf4br_node_controls(node_name)
                             VALUES (%s) ON CONFLICT DO NOTHING""",(node,))
-                        cur.execute("""SELECT persona_workers,report_workers,paused
+                        cur.execute("""SELECT persona_workers,report_workers,paused,request_interval_seconds,http_429_cooldown_seconds
                             FROM bf4br_node_controls WHERE node_name=%s""",(node,))
-                        persona_target,report_target,paused=cur.fetchone()
+                        persona_target,report_target,paused,interval,cooldown=cur.fetchone()
+                publish_request_policy(interval,cooldown)
                 for pid,(process,kind,draining) in list(children.items()):
                     if process.poll() is not None:
                         LOG.info("worker exited pid=%s status=%s",pid,process.returncode)
