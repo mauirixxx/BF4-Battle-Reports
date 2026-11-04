@@ -166,7 +166,13 @@ def deploy():
             run(["scp", "-q", "-o", "BatchMode=yes", "-o",
                  "StrictHostKeyChecking=yes", f"{REPO}/bf4br/release_switch.py",
                  f"{host}:/root/bf4br-release-switch.py"])
-            control("pause", host)
+            # Respect operator pauses that existed before the upgrade.
+            was_paused = subprocess.check_output(
+                ['runuser','-u','postgres','--',REPO+'/.venv/bin/python',
+                 '-c', 'import psycopg,sys; c=psycopg.connect("dbname=bf4_battle_reports user=postgres"); q=c.execute("SELECT paused FROM bf4br_node_controls WHERE node_name=%s",(sys.argv[1],)); r=q.fetchone(); print(int(bool(r and r[0])))', host],
+                text=True, timeout=15).strip() == '1'
+            if not was_paused:
+                control("pause", host)
             try:
                 drain(host)
                 result = run(ssh + ["python3", "/root/bf4br-release-switch.py",
@@ -174,7 +180,8 @@ def deploy():
                              capture_output=True, text=True)
                 results.append({"host": host, "result": json.loads(result.stdout)})
             finally:
-                control("resume", host)
+                if not was_paused:
+                    control("resume", host)
         STATE.parent.mkdir(parents=True, exist_ok=True)
         STATE.write_text(json.dumps({"hosts": hosts, "version": version,
                                      "sha": sha, "results": results}) + "\n")

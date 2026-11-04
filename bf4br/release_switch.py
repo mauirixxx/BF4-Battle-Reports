@@ -20,6 +20,7 @@ RELEASES = ROOT / "bf4br-releases"
 STATE = ROOT / "bf4br-release-state.json"
 LOCK = Path("/run/lock/bf4br-release.lock")
 SERVICE = "bf4br-supervisor.service"
+COORDINATED_DROPIN = Path("/etc/systemd/system/bf4br-supervisor.service.d/50-bf4br-coordinated.conf")
 VERSION = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+\Z")
 
 
@@ -110,6 +111,21 @@ def restore(previous):
         os.replace(temp, LIVE)
 
 
+def configure_coordinated(version):
+    """Enable centralized assignments for v1.0.6+; preserve preexisting config."""
+    major, minor, patch = (int(v) for v in version[1:].split('.'))
+    if (major, minor, patch) < (1, 0, 6):
+        return False
+    if COORDINATED_DROPIN.exists():
+        if COORDINATED_DROPIN.read_text() != '[Service]\nEnvironment=BF4BR_COORDINATED=1\n':
+            raise RuntimeError('unexpected coordinated drop-in content')
+        return False
+    COORDINATED_DROPIN.parent.mkdir(parents=True, exist_ok=True)
+    COORDINATED_DROPIN.write_text('[Service]\nEnvironment=BF4BR_COORDINATED=1\n')
+    run('systemctl', 'daemon-reload')
+    return True
+
+
 def deploy(version, sha):
     if os.geteuid() != 0:
         raise PermissionError("root required")
@@ -127,8 +143,10 @@ def deploy(version, sha):
         run("systemctl", "stop", SERVICE, timeout=75)
         if service_active():
             raise RuntimeError("supervisor did not stop")
+        created_dropin = False
         try:
             switch(target)
+            created_dropin = configure_coordinated(version)
             run("systemctl", "start", SERVICE, timeout=45)
             for _ in range(12):
                 time.sleep(2)
@@ -139,6 +157,9 @@ def deploy(version, sha):
             print(json.dumps({"status": "deployed", "version": version,
                               "sha": sha, "previous": previous}))
         except Exception:
+            if created_dropin:
+                COORDINATED_DROPIN.unlink(missing_ok=True)
+                run('systemctl', 'daemon-reload')
             restore(previous)
             run("systemctl", "restart", SERVICE, timeout=75)
             if not healthy():

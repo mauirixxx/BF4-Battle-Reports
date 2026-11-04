@@ -6,8 +6,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=postgres
-WorkingDirectory=/opt/bf4br
+WorkingDirectory=/opt/bf4br-coordinator-v1.0.6
 Environment="BF4BR_DSN=dbname=bf4_battle_reports user=postgres"
+Environment=PYTHONPATH=/opt/bf4br-coordinator-v1.0.6
 ExecStart=/opt/bf4br/.venv/bin/python -u -m bf4br.scheduler --publish --interval 10
 Restart=on-failure
 RestartSec=5
