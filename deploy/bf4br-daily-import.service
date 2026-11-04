@@ -1,0 +1,10 @@
+[Unit]
+Description=BF4BR UTC daily BF4SW session import
+After=network-online.target postgresql.service
+Wants=network-online.target
+[Service]
+Type=oneshot
+User=postgres
+EnvironmentFile=/etc/bf4br/daily-import.env
+WorkingDirectory=/opt/bf4br
+ExecStart=/opt/bf4br/.venv/bin/python -m bf4br.daily_import
