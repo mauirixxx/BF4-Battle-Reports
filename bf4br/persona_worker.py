@@ -12,7 +12,7 @@ import psycopg
 from bf4br.queue import claim, renew, release
 from bf4br.persona_store import persist_page
 from bf4br.retry import retry_delay
-from bf4br.node_cooldown import guarded_request
+from bf4br.node_cooldown import guarded_request,wait_until_clear
 from bf4br.assignment_planner import next_platform
 
 LOG=logging.getLogger("bf4br.persona")
@@ -67,7 +67,8 @@ def process_one(conn,job,token):
         if not renew(conn,"persona",platform,persona,token,120):
             raise RuntimeError("lease lost before fetch")
         try:
-            status,payload,hint=guarded_request(lambda: get_page(persona,platform,cursor), lambda r:r[0], lambda r:r[2])
+            status,payload,hint=guarded_request(lambda: get_page(persona,platform,cursor), lambda r:r[0], lambda r:r[2],
+                on_wait=lambda: renew(conn,"persona",platform,persona,token,120) or (_ for _ in ()).throw(RuntimeError("lease lost during cooldown")))
         except (URLError,TimeoutError,OSError,ValueError) as e:
             LOG.warning("fetch failed platform=%s persona=%s error=%s",platform,persona,e)
             release(conn,"persona",platform,persona,token,delay_seconds=60,error=str(e))
@@ -103,6 +104,7 @@ def main():
     platform=next_platform(None) if rotating else (int(os.environ['BF4BR_PLATFORM']) if os.environ.get('BF4BR_PLATFORM') else None)
     with psycopg.connect(dsn,autocommit=True) as conn:
         while not STOP:
+            wait_until_clear()
             job=claim(conn,"persona",worker,120,platform=platform)
             if not job:
                 # An empty platform must not strand the flexible tenth slot.
