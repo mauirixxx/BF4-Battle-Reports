@@ -22,3 +22,21 @@ class NodeCooldownTests(unittest.TestCase):
             with patch.object(node_cooldown,'STATE',Path(directory)/'gate.json'):
                 node_cooldown.guarded_request(lambda:(429,'300'),lambda r:r[0],lambda r:r[1])
                 self.assertEqual(json.loads(node_cooldown.STATE.read_text())['cooldown_seconds'],300)
+
+class NodeCooldownConcurrencyTests(unittest.TestCase):
+    def test_wait_and_lease_callback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'gate.json'
+            with patch.object(node_cooldown,'STATE',path):
+                node_cooldown.guarded_request(lambda:(429,None),lambda r:r[0])
+                state=json.loads(path.read_text())
+                calls=[]
+                def advance(seconds):
+                    calls.append(seconds)
+                    state['until_epoch']-=seconds
+                    path.write_text(json.dumps(state))
+                node_cooldown.wait_until_clear(sleeper=advance)
+                self.assertGreaterEqual(len(calls),24)
+                self.assertLessEqual(max(calls),5)
+                with patch.object(node_cooldown.time,'time',return_value=state['until_epoch']+1):
+                    self.assertEqual(node_cooldown.guarded_request(lambda:(200,),lambda r:r[0],on_wait=lambda:calls.append('renew')),(200,))
