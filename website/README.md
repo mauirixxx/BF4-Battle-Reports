@@ -11,3 +11,5 @@ Deployment is **not automatic** from this directory. Review and copy only the in
 ### Cross-site soldier links
 
 The archive's **BF4 Player Stats** link on each soldier's report uses `https://bf4playerstats.com/soldier.html?persona=<persona_id>&platform=<pc|ps4|xboxone>`, not a name search. The BF4PS dossier links back to `https://reports.bf4playerstats.com/battle-reports.php?persona=<persona_id>&platform=<code>` where codes are PC `1`, PlayStation `32`, Xbox `64`. These direct links preserve platform-specific identity without changing the BF4BR database schema.
+
+Navigation behavior: the archive's **BF4 Player Stats** link opens in the same browser tab, while Battlelog and other third-party links retain their new-tab behavior. The BF4PS dossier's reciprocal **Battle Reports** link also stays in the current tab.
