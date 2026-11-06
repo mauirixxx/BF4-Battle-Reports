@@ -2,6 +2,8 @@
 
 Verified 2026-11-02 against PostgreSQL 18.6 on `reports`, database `bf4_battle_reports`.
 
+> **Current operational schema (verified 2026-11-05):** See [`docs/database-schema-reference.md`](docs/database-schema-reference.md) for the read-only production DDL snapshot of BF4BR queue, coordinator, pacing, heartbeat, assignment, fetch-log and collector-error-history objects. The `0001` migration and the initial rollout values below describe the **2026-11-02 baseline**, not the complete v1.0.10 schema. Do not treat the snapshot as an executable migration or infer that later additions are represented by `0001`.
+
 ## Existing data stays in place
 
 The distributed BF4BR workers continue to write to the original database. Existing tables include `battle_report_raw`, `battle_report_details`, `battle_reports`, `report_players`, `players`, `player_name_history`, `servers`, `history_pages`, and `history_discoveries`. No data transfer or rewrite was performed.
