@@ -20,6 +20,7 @@ class FleetDrainTests(unittest.TestCase):
         for table in ('bf4br_persona_jobs','bf4br_report_jobs',
                       'bf4br_daily_persona_jobs','bf4br_daily_report_jobs'):
             self.assertIn(table,scripts[0])
+        self.assertEqual(scripts[0].count('lease_until>now()'),4)
         self.assertEqual(scripts[0].count("'mak-01-%'"),4)
 
     def test_drain_refuses_when_any_lease_remains(self):
