@@ -15,7 +15,7 @@ class SupervisorReconnectTests(unittest.TestCase):
         for conn in (first,second):
             conn.closed=False
             cursor=conn.cursor.return_value.__enter__.return_value
-            cursor.fetchone.return_value=(0,0,False)
+            cursor.fetchone.return_value=(0,0,False,10,180)
             cursor.fetchall.return_value=[]
         # First connection works for one pass, then fails during the next.
         first.transaction.side_effect=[MagicMock(),psycopg.OperationalError('simulated dropped socket')]
