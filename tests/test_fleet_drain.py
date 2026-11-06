@@ -25,7 +25,7 @@ class FleetDrainTests(unittest.TestCase):
     def test_drain_refuses_when_any_lease_remains(self):
         class Result:
             returncode=1
-        with patch.object(fleet_upgrade.subprocess,'run',return_value=Result()), \\
-             patch.object(fleet_upgrade.time,'monotonic',side_effect=[0,11]):
+        with (patch.object(fleet_upgrade.subprocess,'run',return_value=Result()),
+              patch.object(fleet_upgrade.time,'monotonic',side_effect=[0,11])):
             with self.assertRaises(TimeoutError):
                 fleet_upgrade.drain('mak-01',timeout=10)
