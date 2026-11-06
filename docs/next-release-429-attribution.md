@@ -34,3 +34,10 @@ Goal: accurate **current** 429 node and request-type reporting, with persistent 
 - The original `/opt/bf4br` checkout still contains old history and uncommitted modifications. It is deliberately preserved; `/opt/bf4br-main-synced` is the clean verified main worktree.
 
 **Verification result:** Complete isolated PostgreSQL suite passed **90/90** on 2026-11-05 after using separate writable policy and cooldown files; the prior five failures were test-environment permission conflicts with root-owned shared `/tmp` files. No collector code change was required for those failures. The rolling upgrade has not started. Before tagging v1.0.11, verify the staged upgrade/rollback plan and fleet service health.
+
+## Live rollout incident / follow-up (2026-11-06 UTC)
+
+- v1.0.11 published at immutable commit `19f7d859e79bc5d901ab6d0b892f1ddc4ae14369`; `hnl-01` and `hnl-02` upgraded first.
+- `hnl-03` repeatedly failed the original 100-second drain because rows retain `state='leased'` after the owning worker exits; no worker reclaims them while node is paused. Corrected coordinator-side drain to count only unexpired leases (`lease_until>now()`) in all four queues and allow 240 seconds. Changes are in main (after the v1.0.11 tag) and applied to the `reports` deployer, **not** to the immutable v1.0.11 worker artifact.
+- A long-running `daily_persona_worker` historical fallback continued processing after SIGTERM; its daily worker STOP flag does not necessarily stop `persona_worker.process_one` immediately. After confirming the worker was still saving pages and had not stopped, the specific worker was terminated; committed pages persisted, its fenced lease was allowed to expire naturally, and `hnl-03` switched to v1.0.11 with healthy supervisor. **Follow-up needed:** make historical fallback observe daily-worker shutdown without forced termination, with a regression test; release in a future worker version rather than mutating v1.0.11.
+- Automatic timer was stopped during repair, then restarted; sequential upgrade resumed. Confirm all ten nodes and pause states after completion.
