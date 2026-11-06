@@ -22,3 +22,15 @@ Status: **investigation / not released**. Current deployed fleet observed at v1.
 ## Scope
 
 Goal: accurate **current** 429 node and request-type reporting, with persistent events for historical trends. No historical backfill of unrecorded node identities. No change to collection throughput or Battlelog request frequency.
+
+## Pre-release verification update (2026-11-05)
+
+- Live BF4BR operational schema captured read-only in `docs/database-schema-reference.md`; `DEPLOYMENT.md` distinguishes the initial migration from the current state.
+- Public live-monitor fetch errors now correlate with a *single unambiguous* persistent `report` history node within ±30 seconds, suppressing corresponding duplicate rows. Older unmatched fetch records remain `Unknown`.
+- `bf4br/fleet_upgrade.py` now refuses to switch a node until **all four** historical/daily persona/report lease queues have drained; new `tests/test_fleet_drain.py` covers both success and failure.
+- Existing supervisor reconnect fault injection updated to reflect DB-controlled request interval and cooldown columns.
+- For isolated integration tests on `reports`, run as PostgreSQL peer-authenticated user with **separate writable request policy and cooldown files**. The root-owned `/tmp/bf4br-request-policy.json` and `/tmp/bf4br-battlelog-cooldown.json.lock` must not be shared by postgres-run tests. Example: `runuser -u postgres -- env BF4BR_REQUEST_POLICY_FILE=/tmp/bf4br-integration-policy-postgres.json BF4BR_COOLDOWN_FILE=/tmp/bf4br-integration-cooldown-postgres.json BF4BR_TEST_DSN='dbname=bf4br_integration user=postgres' PYTHONPATH=/opt/bf4br-main-synced /opt/bf4br/.venv/bin/python -m unittest discover -s tests -q`.
+- The production coordinator's `/opt/bf4br/bf4br/fleet_upgrade.py` was backed up and updated to match GitHub main. `--check` confirmed v1.0.10 remains the latest published release and listed ten eligible nodes; **no deployment was initiated**.
+- The original `/opt/bf4br` checkout still contains old history and uncommitted modifications. It is deliberately preserved; `/opt/bf4br-main-synced` is the clean verified main worktree.
+
+**Release decision:** Do not tag or deploy v1.0.11 until the complete isolated PostgreSQL suite passes and the staged upgrade/rollback plan is confirmed.
