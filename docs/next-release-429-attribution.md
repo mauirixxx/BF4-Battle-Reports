@@ -33,4 +33,4 @@ Goal: accurate **current** 429 node and request-type reporting, with persistent 
 - The production coordinator's `/opt/bf4br/bf4br/fleet_upgrade.py` was backed up and updated to match GitHub main. `--check` confirmed v1.0.10 remains the latest published release and listed ten eligible nodes; **no deployment was initiated**.
 - The original `/opt/bf4br` checkout still contains old history and uncommitted modifications. It is deliberately preserved; `/opt/bf4br-main-synced` is the clean verified main worktree.
 
-**Release decision:** Do not tag or deploy v1.0.11 until the complete isolated PostgreSQL suite passes and the staged upgrade/rollback plan is confirmed.
+**Verification result:** Complete isolated PostgreSQL suite passed **90/90** on 2026-11-05 after using separate writable policy and cooldown files; the prior five failures were test-environment permission conflicts with root-owned shared `/tmp` files. No collector code change was required for those failures. The rolling upgrade has not started. Before tagging v1.0.11, verify the staged upgrade/rollback plan and fleet service health.
