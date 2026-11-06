@@ -111,8 +111,8 @@ def control(action, host):
                env={**os.environ, "BF4BR_DSN": "dbname=bf4_battle_reports user=postgres"})
 
 
-def drain(host, timeout=100):
-    """Require paused controls and no outstanding node-owned leases."""
+def drain(host, timeout=240):
+    """Require paused controls and no *unexpired* node-owned leases.\n\n    Stopped workers leave fenced rows in state=leased until lease expiry;\n    those expired rows are reclaimable and must not block upgrades forever.\n    """
     deadline = time.monotonic() + timeout
     script = (
         "import psycopg,sys; "
@@ -120,10 +120,10 @@ def drain(host, timeout=100):
         "cur=c.cursor(); "
         "cur.execute('SELECT paused FROM bf4br_node_controls WHERE node_name=%s',(" + repr(host) + ",)); "
         "row=cur.fetchone(); "
-        "cur.execute(\"SELECT (SELECT count(*) FROM bf4br_persona_jobs WHERE state='leased' AND lease_owner LIKE %s) + "
-        "(SELECT count(*) FROM bf4br_report_jobs WHERE state='leased' AND lease_owner LIKE %s) + "
-        "(SELECT count(*) FROM bf4br_daily_persona_jobs WHERE state='leased' AND lease_owner LIKE %s) + "
-        "(SELECT count(*) FROM bf4br_daily_report_jobs WHERE state='leased' AND lease_owner LIKE %s)\", "
+        "cur.execute(\"SELECT (SELECT count(*) FROM bf4br_persona_jobs WHERE state='leased' AND lease_until>now() AND lease_owner LIKE %s) + "
+        "(SELECT count(*) FROM bf4br_report_jobs WHERE state='leased' AND lease_until>now() AND lease_owner LIKE %s) + "
+        "(SELECT count(*) FROM bf4br_daily_persona_jobs WHERE state='leased' AND lease_until>now() AND lease_owner LIKE %s) + "
+        "(SELECT count(*) FROM bf4br_daily_report_jobs WHERE state='leased' AND lease_until>now() AND lease_owner LIKE %s)\", "
         "(" + ",".join([repr(host + "-%")] * 4) + ")); "
         "n=cur.fetchone()[0]; "
         "print(int(bool(row and row[0])),n); "
