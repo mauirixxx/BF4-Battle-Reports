@@ -35,7 +35,8 @@ class SupervisorIntegration(unittest.TestCase):
                     if len(children())==target:
                         return
                     time.sleep(.3)
-                self.assertEqual(len(children()),target,\n                                 f"expected {target} child processes, saw {children()}")
+                self.assertEqual(len(children()),target,
+                                 f"expected {target} child processes, saw {children()}")
             try:
                 await_count(0)
                 with conn.cursor() as cur:
