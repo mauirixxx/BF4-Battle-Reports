@@ -25,16 +25,32 @@ def seed_reports(conn, limit=500):
             return cur.rowcount
 
 
-def activate(conn):
-    """Globally select a report only after the prior active report is resolved."""
+def activate(conn, max_active=2):
+    """Activate newest eligible report while keeping a bounded rolling window.
+
+    A second report opens only when all currently active reports have no
+    immediately claimable player jobs. Leased work may still be in flight.
+    """
+    if not 1 <= max_active <= 16:
+        raise ValueError('invalid active report bound')
     with conn.transaction():
         with conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_xact_lock(%s)", (LOCK_KEY,))
-            cur.execute("""SELECT platform,battlelog_report_id FROM bf4br_detail_reports
-                WHERE state='active' LIMIT 1""")
-            active=cur.fetchone()
+            cur.execute("""SELECT count(*) FROM bf4br_detail_reports
+                WHERE state='active'""")
+            active=cur.fetchone()[0]
+            if active>=max_active:
+                return None
             if active:
-                return active
+                cur.execute("""SELECT EXISTS(
+                    SELECT 1 FROM bf4br_detail_players p
+                    JOIN bf4br_detail_reports r USING(platform,battlelog_report_id)
+                    WHERE r.state='active' AND
+                    ((p.state IN ('ready','retry') AND p.next_attempt_at<=now())
+                      OR (p.state='leased' AND p.lease_until<=now()))
+                )""")
+                if cur.fetchone()[0]:
+                    return None
             cur.execute("""SELECT platform,battlelog_report_id FROM bf4br_detail_reports
                 WHERE state IN ('pending','deferred') AND retry_after<=now()
                 ORDER BY report_timestamp DESC,platform,battlelog_report_id DESC
@@ -43,8 +59,6 @@ def activate(conn):
             if not report:
                 return None
             platform,rid=report
-            # Roster comes from normalized imported generic reports, not a
-            # guessed participant list or a previous match.
             cur.execute("""INSERT INTO bf4br_detail_players(platform,battlelog_report_id,persona_id)
                 SELECT r.platform,r.battlelog_report_id,p.persona_id
                 FROM battle_reports r
@@ -78,7 +92,7 @@ def claim_player(conn, worker, lease_seconds=120):
                 WHERE r.state='active'
                   AND ((p.state IN ('ready','retry') AND p.next_attempt_at<=now())
                     OR (p.state='leased' AND p.lease_until<now()))
-                ORDER BY p.persona_id FOR UPDATE OF p SKIP LOCKED LIMIT 1
+                ORDER BY r.report_timestamp DESC,p.persona_id FOR UPDATE OF p SKIP LOCKED LIMIT 1
             ) UPDATE bf4br_detail_players p
               SET state='leased',lease_owner=%s,lease_token=%s,
                   lease_until=now()+(%s * interval '1 second'),updated_at=now()
@@ -154,7 +168,7 @@ def settle_report(conn, defer_seconds=1200):
         with conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_xact_lock(%s)",(LOCK_KEY,))
             cur.execute("""SELECT platform,battlelog_report_id,expected_players
-                FROM bf4br_detail_reports WHERE state='active' FOR UPDATE""")
+                FROM bf4br_detail_reports WHERE state='active' ORDER BY report_timestamp DESC LIMIT 1 FOR UPDATE""")
             report=cur.fetchone()
             if not report:
                 return None
