@@ -57,7 +57,8 @@ function playerExternalLinks(array $pl):array{
  $pid=rawurlencode((string)$pl['persona_id']);$name=rawurlencode((string)$pl['current_name']);$platform=(string)$pl['platform'];
  $slug=['1'=>'pc','32'=>'ps4','64'=>'xboxone'][$platform]??'pc';
  $links=['BF4 Player Stats'=>'https://bf4playerstats.com/soldier.html?persona='.$pid.'&platform='.$slug,'Battlelog'=>'https://battlelog.battlefield.com/bf4/soldier/'.$name.'/stats/'.$pid.'/'.$slug.'/'];
- if($platform==='1'){$links['BF4DB']='https://bf4db.com/player/'.$pid;$links['Battlefield Agency']='https://battlefield.agency/search?q='.$pid;$links['BF4 Cheat Report']='https://bf4cheatreport.com/?pid='.$pid.'&cnt=200';$links['BF4CR Clone']='bf4cr-clone.php?persona='.$pid.'&platform='.$platform.'&cnt=200';}
+ if($platform==='1'){$links['BF4DB']='https://bf4db.com/player/'.$pid;$links['Battlefield Agency']='https://battlefield.agency/search?q='.$pid;$links['BF4 Cheat Report']='https://bf4cheatreport.com/?pid='.$pid.'&cnt=200';}
+ $links['BF4CR Clone']='bf4cr-clone.php?persona='.$pid.'&platform='.$platform.'&cnt=200';
  return $links;
 }
 function urlq(array $changes):string{return '?'.http_build_query(array_merge($_GET,$changes));}
