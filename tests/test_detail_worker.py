@@ -17,10 +17,10 @@ class DetailFetchTests(unittest.TestCase):
 
     def test_url_contains_persona_not_generic_zero(self):
         proc=MagicMock(returncode=0,stdout='{"id":123,"platform":1}\n200')
-        with patch('bf4br.detail_fetch.subprocess.run',return_value=proc):
+        with patch('bf4br.detail_fetch.subprocess.run',return_value=proc) as run:
             code,payload,error,hint=fetch_detail(1,123,456)
         self.assertEqual((code,payload,error,hint),(200,{'id':123,'platform':1},None,None))
-        args=proc.call_args.args[0]
+        args=run.call_args.args[0]
         self.assertIn('/123/1/456/',args[-1])
 
     def test_identity_validation_before_database_write(self):
