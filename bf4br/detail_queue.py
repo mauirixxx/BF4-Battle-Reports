@@ -126,6 +126,8 @@ def save_player(conn,job,token,payload):
     detail=payload.get('playerReport')
     if not isinstance(detail,dict) or not isinstance(detail.get('stats'),dict):
         raise ValueError('missing playerReport.stats')
+    if str(detail.get('personaId')) != str(persona):
+        raise ValueError('playerReport personaId mismatch')
     import json
     with conn.transaction():
         with conn.cursor() as cur:
