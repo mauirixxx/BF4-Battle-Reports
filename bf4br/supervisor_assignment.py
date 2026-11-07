@@ -18,10 +18,12 @@ def desired_specs(assignment, persona_target, paused, detail_enabled=False):
     if detail_enabled:
         mapped=v2_assignment(assignment,True)
         if mapped.role=='detail':
+            if persona_target == 0:
+                return []
             if persona_target != 1:
                 raise ValueError('detail role requires exactly one worker')
             from bf4br.assignment_runtime import WorkerSpec
-            return [WorkerSpec('persona','detail',None)] if persona_target else []
+            return [WorkerSpec('persona','detail',None)]
     return desired_persona_specs(assignment, persona_target)
 
 
