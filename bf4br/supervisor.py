@@ -41,6 +41,9 @@ def main():
     children={}
     serial=0
     coordinated=os.environ.get('BF4BR_COORDINATED') == '1'
+    detail_enabled=os.environ.get('BF4BR_DETAIL_V2_ENABLED') == '1'
+    if detail_enabled and not coordinated:
+        raise ValueError('v2 detail mode requires coordinated supervisor')
     # A coordinated node must advertise health or it will never be assigned.
     heartbeat_enabled=coordinated or os.environ.get('BF4BR_ENABLE_HEARTBEATS') == '1'
     active_specs={}
@@ -93,7 +96,7 @@ def main():
                 # their existing independent configuration and pacing.
                 if coordinated:
                     assignment=read_assignment(conn,node)
-                    specs=desired_specs(assignment,persona_target,paused)
+                    specs=desired_specs(assignment,persona_target,paused,detail_enabled=detail_enabled)
                     desired_spec=specs[0] if specs else None
                     # Never overlap old and new persona jobs on one node.
                     # Wait for the old process to exit after SIGTERM before
