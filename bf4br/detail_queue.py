@@ -106,7 +106,8 @@ def save_player(conn,job,token,payload):
     platform,rid,persona=job
     if not isinstance(payload,dict) or int(payload.get('id',0))!=rid or int(payload.get('platform',0))!=platform:
         raise ValueError('player report identity mismatch')
-    if str(persona) not in payload.get('players',{}):
+    roster=payload.get('players')
+    if not isinstance(roster,dict) or str(persona) not in roster:
         raise ValueError('persona missing from report roster')
     detail=payload.get('playerReport')
     if not isinstance(detail,dict) or not isinstance(detail.get('stats'),dict):
