@@ -163,37 +163,47 @@ def retry_player(conn,job,token,error,delay_seconds=1200):
 
 
 def settle_report(conn, defer_seconds=1200):
-    """Atomic complete-or-defer decision. A report is never partly complete."""
+    """Settle all active reports that are complete or waiting on delayed retries.
+
+    Serializes with activation, but never marks a report complete while a
+    player is leased or missing its stored raw response.
+    """
+    outcomes=[]
     with conn.transaction():
         with conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_xact_lock(%s)",(LOCK_KEY,))
             cur.execute("""SELECT platform,battlelog_report_id,expected_players
-                FROM bf4br_detail_reports WHERE state='active' ORDER BY report_timestamp ASC LIMIT 1 FOR UPDATE""")
-            report=cur.fetchone()
-            if not report:
-                return None
-            platform,rid,expected=report
-            cur.execute("""SELECT count(*) FILTER (WHERE p.state='done' AND a.persona_id IS NOT NULL),
+                FROM bf4br_detail_reports WHERE state='active'
+                ORDER BY report_timestamp ASC FOR UPDATE""")
+            reports=cur.fetchall()
+            for platform,rid,expected in reports:
+                cur.execute("""SELECT
+                    count(*) FILTER (WHERE p.state='done' AND a.persona_id IS NOT NULL),
                     count(*) FILTER (WHERE p.state='leased' AND p.lease_until>now()),
-                    count(*) FILTER (WHERE p.state IN ('ready','retry') AND p.next_attempt_at<=now()
-                                      OR p.state='leased' AND p.lease_until<=now()),
+                    count(*) FILTER (WHERE
+                        (p.state IN ('ready','retry') AND p.next_attempt_at<=now())
+                        OR (p.state='leased' AND p.lease_until<=now())),
                     count(*)
-                FROM bf4br_detail_players p
-                LEFT JOIN bf4br_player_report_raw a
-                  USING(platform,battlelog_report_id,persona_id)
-                WHERE p.platform=%s AND p.battlelog_report_id=%s""",(platform,rid))
-            done,inflight,eligible,total=cur.fetchone()
-            if total!=expected:
-                raise RuntimeError('roster changed during report enrichment')
-            if done==expected:
-                cur.execute("""UPDATE bf4br_detail_reports SET state='complete',
-                    completed_at=now(),updated_at=now()
-                    WHERE platform=%s AND battlelog_report_id=%s""",(platform,rid))
-                return 'complete'
-            if inflight or eligible:
-                return 'working'
-            cur.execute("""UPDATE bf4br_detail_reports SET state='deferred',
-                retry_after=now()+(%s * interval '1 second'),
-                last_error='player retries pending',updated_at=now()
-                WHERE platform=%s AND battlelog_report_id=%s""",(defer_seconds,platform,rid))
-            return 'deferred'
+                    FROM bf4br_detail_players p
+                    LEFT JOIN bf4br_player_report_raw a
+                      USING(platform,battlelog_report_id,persona_id)
+                    WHERE p.platform=%s AND p.battlelog_report_id=%s""",(platform,rid))
+                done,inflight,eligible,total=cur.fetchone()
+                if total!=expected:
+                    raise RuntimeError('roster changed during report enrichment')
+                if done==expected:
+                    cur.execute("""UPDATE bf4br_detail_reports
+                        SET state='complete',completed_at=now(),updated_at=now()
+                        WHERE platform=%s AND battlelog_report_id=%s""",(platform,rid))
+                    outcomes.append((platform,rid,'complete'))
+                elif not inflight and not eligible:
+                    cur.execute("""UPDATE bf4br_detail_reports
+                        SET state='deferred',
+                        retry_after=now()+(%s * interval '1 second'),
+                        last_error='player retries pending',updated_at=now()
+                        WHERE platform=%s AND battlelog_report_id=%s""",
+                        (defer_seconds,platform,rid))
+                    outcomes.append((platform,rid,'deferred'))
+                else:
+                    outcomes.append((platform,rid,'working'))
+    return outcomes
