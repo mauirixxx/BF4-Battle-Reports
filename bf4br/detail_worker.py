@@ -6,8 +6,8 @@ import time
 
 import psycopg
 from bf4br.detail_fetch import fetch_detail
-from bf4br.detail_queue import (seed_reports,activate,claim_player,renew_player,
-                                save_player,retry_player,settle_report)
+from bf4br.detail_queue import (claim_player,renew_player,
+                                save_player,retry_player)
 from bf4br.node_cooldown import guarded_request,wait_until_clear
 from bf4br.retry import retry_delay
 
@@ -55,16 +55,8 @@ def main():
     with psycopg.connect(os.environ['BF4BR_DSN'],autocommit=True) as conn:
         while not STOP:
             wait_until_clear()
-            # Seeding is idempotent and only includes imported generic reports.
-            seed_reports(conn,limit=250)
-            settle_report(conn)
-            activate(conn)
             claimed=claim_player(conn,worker)
             if claimed is None:
-                outcomes=settle_report(conn)
-                for platform,rid,state in outcomes:
-                    if state in ('complete','deferred'):
-                        LOG.info('detail report %s/%s state=%s',platform,rid,state)
                 time.sleep(2)
                 continue
             job,token=claimed
