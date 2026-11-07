@@ -32,9 +32,13 @@ def process_one(conn,job,token,fetcher=fetch,sleeper=time.sleep):
             try:
                 if fetcher is fetch:
                     status,payload,error,hint=guarded_request(
-                        lambda:fetch_with_headers(platform,rid),lambda r:r[0],lambda r:r[3])
+                        lambda:fetch_with_headers(platform,rid),lambda r:r[0],lambda r:r[3],
+                        on_wait=lambda: (_ for _ in ()).throw(InterruptedError("report shutdown")) if STOP else None)
                 else:
                     status,payload,error=fetcher(platform,rid)
+            except InterruptedError:
+                release(conn,"report",platform,rid,token)
+                return "drained"
             except (OSError,TimeoutError) as exc:
                 status,payload,error=0,None,str(exc)
             if status==200 and payload is not None:
