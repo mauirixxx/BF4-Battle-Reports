@@ -27,8 +27,11 @@ def process_one(conn,job,token,fetcher=fetch_detail):
         status,payload,error,hint=guarded_request(
             lambda: fetcher(*job),lambda result:result[0],
             lambda result:result[3],
-            on_wait=lambda: renew_player(conn,job,token) or
+            on_wait=lambda: (_ for _ in ()).throw(InterruptedError("detail shutdown")) if STOP else renew_player(conn,job,token) or
             (_ for _ in ()).throw(RuntimeError('detail lease lost during cooldown')))
+    except InterruptedError:
+        retry_player(conn,job,token,"shutdown during cooldown",0)
+        return "drained"
     except (OSError,TimeoutError,ValueError) as exc:
         retry_player(conn,job,token,str(exc),1200)
         return 'retry'
