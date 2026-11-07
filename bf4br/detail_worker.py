@@ -57,17 +57,14 @@ def main():
             wait_until_clear()
             # Seeding is idempotent and only includes imported generic reports.
             seed_reports(conn,limit=250)
-            active=activate(conn)
-            if active is None:
-                time.sleep(3)
-                continue
+            settle_report(conn)
+            activate(conn)
             claimed=claim_player(conn,worker)
             if claimed is None:
-                state=settle_report(conn)
-                if state=='complete':
-                    LOG.info('enrichment report complete %s',active)
-                elif state=='deferred':
-                    LOG.warning('enrichment report deferred %s',active)
+                outcomes=settle_report(conn)
+                for platform,rid,state in outcomes:
+                    if state in ('complete','deferred'):
+                        LOG.info('detail report %s/%s state=%s',platform,rid,state)
                 time.sleep(2)
                 continue
             job,token=claimed
