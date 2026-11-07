@@ -27,13 +27,14 @@ class DetailFetchTests(unittest.TestCase):
         class NoDatabase:
             def transaction(self):
                 raise AssertionError('must reject before opening transaction')
-        valid={'id':123,'platform':1,'players':{'456':{}},'playerReport':{'stats':{}}}
+        valid={'id':123,'platform':1,'players':{'456':{}},'playerReport':{'stats':{},'personaId':456}}
         bad=[
             {**valid,'id':124},
             {**valid,'platform':32},
             {**valid,'players':[]},
             {**valid,'players':{'999':{}}},
             {**valid,'playerReport':{}},
+            {**valid,'playerReport':{'stats':{},'personaId':999}},
         ]
         for payload in bad:
             with self.subTest(payload=payload):
