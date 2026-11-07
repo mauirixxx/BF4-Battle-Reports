@@ -168,7 +168,7 @@ def settle_report(conn, defer_seconds=1200):
         with conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_xact_lock(%s)",(LOCK_KEY,))
             cur.execute("""SELECT platform,battlelog_report_id,expected_players
-                FROM bf4br_detail_reports WHERE state='active' ORDER BY report_timestamp DESC LIMIT 1 FOR UPDATE""")
+                FROM bf4br_detail_reports WHERE state='active' ORDER BY report_timestamp ASC LIMIT 1 FOR UPDATE""")
             report=cur.fetchone()
             if not report:
                 return None
