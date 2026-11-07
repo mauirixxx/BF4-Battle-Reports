@@ -5,11 +5,11 @@ import os
 import signal
 import time
 from uuid import uuid4
+from bf4br.detail_coordinator import advance_if_leader
 
 import psycopg
 from bf4br.assignment_planner import plan, Assignment
 from bf4br.fleet_coordination import healthy_nodes, plan_once
-from bf4br.detail_queue import seed_reports,settle_report,activate
 
 LOG = logging.getLogger('bf4br.scheduler')
 STOP = False
@@ -54,10 +54,8 @@ def main(argv=None):
                         if args.detail_queue:
                             # Leadership must be held by this scheduler. A successor
                             # can safely resume because queue transitions are transactional.
-                            seeded=seed_reports(conn,limit=250)
-                            outcomes=settle_report(conn)
-                            opened=activate(conn)
-                            LOG.info('detail queue seeded=%s settled=%s activated=%s',seeded,outcomes,opened)
+                            result=advance_if_leader(conn,owner)
+                            LOG.info('detail queue advancement: %s',result)
                 else:
                     with conn.cursor() as cur:
                         cur.execute('SELECT node_name,role,platform FROM bf4br_worker_assignments ORDER BY node_name')
