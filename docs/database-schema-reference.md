@@ -436,3 +436,16 @@ ALTER TABLE ONLY public.bf4br_node_heartbeats
 ALTER TABLE ONLY public.bf4br_worker_assignments
     ADD CONSTRAINT bf4br_worker_assignments_node_name_fkey FOREIGN KEY (node_name) REFERENCES public.bf4br_node_controls(node_name);
 ```
+
+
+## v2.0.0 player-detail enrichment — migration 0007
+
+Applied to production `bf4_battle_reports` on the `reports` host on 2026-11-07 UTC. Additive only; existing generic archive tables and existing collector assignments are unchanged. Source of truth: `migrations/0007_player_detail_enrichment.sql`.
+
+- `bf4br_detail_reports`: composite PK `(platform,battlelog_report_id)`; FK to `battle_reports(platform,battlelog_report_id)`. Fields: `report_timestamp`, `state` (pending/active/complete/deferred), `expected_players`, `retry_after`, `activated_at`, `completed_at`, `last_error`, `updated_at`. Partial unique index on constant 1 where state=active enforces at most one globally active report. Partial newest-first index supports pending/deferred selection.
+- `bf4br_detail_players`: composite PK `(platform,battlelog_report_id,persona_id)`; FKs to `bf4br_detail_reports` and `players(platform,persona_id)`. Fields: `state` (ready/leased/done/retry), `lease_owner`, `lease_token`, `lease_until`, `next_attempt_at`, `failures`, `last_error`, `updated_at`. Partial claim and expired-lease indexes.
+- `bf4br_player_report_raw`: composite PK `(platform,battlelog_report_id,persona_id)`, FK to `bf4br_detail_players`; `raw_response jsonb NOT NULL`, `fetched_at timestamptz NOT NULL DEFAULT now()`. This is distinct from `battle_report_raw` and `battle_report_details`, which remain generic-report-only.
+- `bf4br_collector` has SELECT/INSERT/UPDATE/DELETE on all three new tables. No new sequences.
+- Migration was tested inside a rolled-back transaction, then applied successfully; three tables verified and existing generic report count was 129234 at post-migration verification.
+- **Rollout gate**: migration alone does not enable collection. All ten nodes must receive compatible v2 worker/supervisor code through the release mechanism before historical assignments are repurposed. Existing v1 worker code is compatible with the additive schema because it does not reference the new tables.
+- **Important**: This reference is not an executable migration. Future schema changes must update the reference and the migration together.
