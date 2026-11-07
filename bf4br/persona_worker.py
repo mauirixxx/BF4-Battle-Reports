@@ -40,7 +40,9 @@ def get_page(persona,platform,cursor,timeout=25):
         raise ValueError("history response too large")
     return status,json.loads(body),hint
 
-def process_one(conn,job,token):
+def process_one(conn,job,token,stop_requested=None):
+    if stop_requested is None:
+        stop_requested = lambda: STOP
     platform,persona=job
     with conn.cursor() as cur:
         cur.execute("""SELECT cursor_epoch,boundary_epoch
@@ -63,12 +65,15 @@ def process_one(conn,job,token):
                 if cur.rowcount!=1:
                     raise RuntimeError("lease lost during initialization")
     pages=0
-    while not STOP:
+    while not stop_requested():
         if not renew(conn,"persona",platform,persona,token,120):
             raise RuntimeError("lease lost before fetch")
         try:
             status,payload,hint=guarded_request(lambda: get_page(persona,platform,cursor), lambda r:r[0], lambda r:r[2],
-                on_wait=lambda: renew(conn,"persona",platform,persona,token,120) or (_ for _ in ()).throw(RuntimeError("lease lost during cooldown")))
+                on_wait=lambda: (_ for _ in ()).throw(InterruptedError("persona shutdown")) if stop_requested() else (renew(conn,"persona",platform,persona,token,120) or (_ for _ in ()).throw(RuntimeError("lease lost during cooldown"))))
+        except InterruptedError:
+            release(conn,"persona",platform,persona,token,delay_seconds=0)
+            return
         except (URLError,TimeoutError,OSError,ValueError) as e:
             LOG.warning("fetch failed platform=%s persona=%s error=%s",platform,persona,e)
             release(conn,"persona",platform,persona,token,delay_seconds=60,error=str(e))
