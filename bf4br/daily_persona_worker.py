@@ -83,7 +83,10 @@ def process_one(conn, day, platform, persona, token):
             raise RuntimeError('daily lease lost')
         try:
             status,payload,hint = guarded_request(lambda: get_page(persona,platform,cursor), lambda r:r[0], lambda r:r[2],
-                on_wait=lambda: renew(conn,"persona",day,platform,persona,token) or (_ for _ in ()).throw(RuntimeError("daily lease lost during cooldown")))
+                on_wait=lambda: (_ for _ in ()).throw(InterruptedError("daily shutdown")) if STOP else (renew(conn,"persona",day,platform,persona,token) or (_ for _ in ()).throw(RuntimeError("daily lease lost during cooldown"))))
+        except InterruptedError:
+            release(conn,"persona",day,platform,persona,token,delay_seconds=0)
+            return
         except (OSError,ValueError,TimeoutError) as exc:
             release(conn,'persona',day,platform,persona,token,delay_seconds=120,error=str(exc)[:160])
             return
@@ -119,7 +122,7 @@ def main():
                 if historical:
                     job,token=historical
                     try:
-                        process_historical(conn,job,token)
+                        process_historical(conn,job,token,stop_requested=lambda: STOP)
                     except Exception:
                         LOG.exception('historical fallback failed platform=%s persona=%s',*job)
                         release_historical(conn,'persona',*job,token,delay_seconds=120,error='fallback worker exception')
