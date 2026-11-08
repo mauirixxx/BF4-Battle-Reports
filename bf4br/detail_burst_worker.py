@@ -74,16 +74,19 @@ def process_batch(conn, worker, *, stopped=lambda: False, fetcher=fetch_detail,
         # Exclusive node lock stays held until the last in-flight response has
         # been classified. Other local collector processes cannot bypass a 429.
         try:
-            claimed = []
-            for _ in range(min(batch_size, 40)):
-                if stopped():
-                    break
-                item = claim_player(conn, worker)
-                if item is None:
-                    break
-                claimed.append(item)
-            if not claimed:
-                return 0, False
+            # Claim on demand as HTTP slots open, rather than leasing 40
+            # players before their requests can begin. This keeps each
+            # 120-second lease fresh even if a batch runs for minutes.
+            def claims():
+                for _ in range(min(batch_size, 40)):
+                    if stopped():
+                        return
+                    item = claim_player(conn, worker)
+                    if item is None:
+                        return
+                    job, token = item
+                    if renew_player(conn, job, token):
+                        yield item
 
             def fetch(item):
                 job, _ = item
@@ -104,20 +107,8 @@ def process_batch(conn, worker, *, stopped=lambda: False, fetcher=fetch_detail,
                 except ValueError as exc:
                     retry_player(conn, job, token, f'invalid detail: {exc}', 86400)
 
-            # Renew before dispatch; the caller does not sleep with active claims.
-            eligible = []
-            for job, token in claimed:
-                if renew_player(conn, job, token):
-                    eligible.append((job, token))
-            try:
-                count, limited = run_burst(eligible, fetch, handle,
-                                           batch_size=batch_size, stopped=stopped)
-            finally:
-                # Unstarted claims must not sit leased until expiry.
-                # This includes jobs held back by a 429 or shutdown.
-                # Successful/retried jobs have already cleared their tokens.
-                for job, token in claimed:
-                    retry_player(conn, job, token, 'burst not dispatched', 0)
+            count, limited = run_burst(claims(), fetch, handle,
+                                       batch_size=batch_size, stopped=stopped)
             if count:
                 now = time.time()
                 try:
