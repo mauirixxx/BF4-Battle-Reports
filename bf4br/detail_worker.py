@@ -6,6 +6,7 @@ import time
 
 import psycopg
 from bf4br.detail_fetch import fetch_detail
+from bf4br.detail_burst_worker import process_batch
 from bf4br.detail_queue import (claim_player,renew_player,
                                 save_player,retry_player)
 from bf4br.node_cooldown import guarded_request,wait_until_clear
@@ -56,7 +57,19 @@ def main():
     signal.signal(signal.SIGINT,stop)
     worker=os.environ.get('BF4BR_WORKER_ID',f'detail-{os.getpid()}')
     with psycopg.connect(os.environ['BF4BR_DSN'],autocommit=True) as conn:
+        burst_enabled=os.environ.get("BF4BR_DETAIL_BURST_ENABLED") == "1"
         while not STOP:
+            if burst_enabled:
+                count=0
+                try:
+                    count, limited=process_batch(conn,worker,stopped=lambda: STOP)
+                    LOG.info("detail burst dispatched=%s rate_limited=%s",count,limited)
+                except Exception:
+                    LOG.exception("detail burst failed; existing leases remain fenced and recoverable")
+                    time.sleep(2)
+                if not STOP and count == 0:
+                    time.sleep(2)
+                continue
             wait_until_clear()
             claimed=claim_player(conn,worker)
             if claimed is None:
