@@ -1,6 +1,6 @@
 # BF4BR v2 player-detail burst pacing — release preparation
 
-**Status: feature branch preparation only. Not enabled, tagged, or deployed.**
+**Status: release candidate on feature branch. Not enabled, tagged, or deployed.**
 
 ## Intent
 
@@ -16,12 +16,14 @@ Reuse the existing `bf4br.detail_worker`, player-detail job queue, per-player ra
 ## Implementation constraints before activation
 
 1. Preserve the shared node-wide 429 gate, but replace request-long serialization for detail bursts with an explicit **node-local reservation/active-burst mechanism**. Other Battlelog clients on the same IP must not bypass an active cooldown or race with a 429. No change to the default conservative behavior until feature opt-in.
-2. Keep each persona claim's **own PostgreSQL connection and lease token**; never share a psycopg connection concurrently across threads. Reuse `save_player`/`retry_player` rather than creating a second persistence path.
+2. Keep each persona claim's **own lease token**, with a single PostgreSQL connection on the dispatcher thread; never share a psycopg connection concurrently across threads. Reuse `save_player`/`retry_player` rather than creating a second persistence path.
 3. Keep no more than 4 in-flight HTTP requests and no more than 40 dispatched requests per burst, even across failures. A 429 stops dispatching new work, records the existing node-wide cooldown, and lets already-running requests finish/checkpoint.
 4. Start the 61-second cooldown **after all in-flight requests from the batch finish**. Make waits interruptible for shutdown and preserve lease ownership/renewal. Do not spend an expiring lease sleeping without renewal.
 5. Count every Battlelog request made by other worker types on the node against the shared pacing policy. Avoid assuming a dedicated-IP detail worker when the supervisor also runs generic/persona requests.
 6. Validate with isolated tests (burst cap, 429 race, concurrent persistence, restart/lease expiry, interrupted cooldown, mixed worker traffic) and the user's ongoing v4 soak results. Do not publish a release until those pass.
 
-## Preparation committed so far
+## Release candidate
 
-`bf4br/detail_batch.py` provides pure, bounded batching and parameter validation; `tests/test_detail_batch.py` covers boundaries and invalid policy. **This is not the concurrent request implementation**. The existing production behavior is unchanged.
+`detail_burst.py` dispatches up to four concurrent HTTP requests, while `detail_burst_worker.py` handles persistence on one PostgreSQL connection, shared node-wide locking, 429 classification and the post-batch 61-second cooldown. Player jobs are claimed incrementally as HTTP slots open, preventing a 40-job backlog of expiring leases. The feature is opt-in with `BF4BR_DETAIL_BURST_ENABLED=1` and requires the existing detail pipeline to be enabled separately. Generic report collection remains unchanged.
+
+Release verification: run the full `unittest` suite with the production Python environment and confirm the supervisor opt-in configuration before tagging.
