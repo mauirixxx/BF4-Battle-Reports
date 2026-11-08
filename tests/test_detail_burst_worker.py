@@ -25,6 +25,27 @@ class BurstWorkerTests(unittest.TestCase):
             self.assertEqual(len(saved),40)
             self.assertGreaterEqual(json.loads(state.read_text())['until_epoch'], __import__('time').time()+59)
 
+    def test_claims_are_incremental_and_stop_on_429(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d)/'cooldown.json'
+            claimed=[]
+            def claim(*_):
+                i=len(claimed)+1
+                claimed.append(i)
+                return ((1, 10, i), f'token{i}')
+            with patch.object(worker.node_cooldown, 'STATE', state), \
+                 patch.object(worker.node_cooldown, 'policy_values', return_value=(10,180)), \
+                 patch.object(worker, 'claim_player', side_effect=claim), \
+                 patch.object(worker, 'renew_player', return_value=True), \
+                 patch.object(worker, 'save_player'), \
+                 patch.object(worker, 'retry_player', return_value=True):
+                count, limited=worker.process_batch(object(), 'node',
+                    fetcher=lambda p,r,i:(429 if i==1 else 200, None, 'limited', None))
+            self.assertTrue(limited)
+            self.assertEqual(count, 4)
+            self.assertEqual(claimed, [1,2,3,4])
+            self.assertGreater(json.loads(state.read_text())['until_epoch'], __import__('time').time()+170)
+
 
 if __name__=='__main__':
     unittest.main()
