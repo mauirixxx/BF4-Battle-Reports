@@ -1,6 +1,10 @@
 # Player-specific report enrichment — implementation plan
 
-Status: design baseline; **not deployed**. Generic collection continues unchanged.
+**Status (2026-11-07 release baseline):** Historical design document for the player-detail pipeline introduced in v2.0.0. **v2.0.1 is the latest published release; its release notes state player-detail enrichment remains disabled until explicitly activated.** Generic collection remains the deployed baseline. The architecture below is an original proposal, not a precise description of all subsequently implemented code. See [v2.0.0 rollout history](v2.0.0-rollout.md) for completed work and [experimental burst pacing](https://github.com/mauirixxx/BF4-Battle-Reports/blob/feature/v2-detail-burst-pacing/docs/v2-detail-burst-pacing.md) for the unreleased throughput change.
+
+**Design changes since this proposal:** Migration `0008_rolling_detail_pipeline.sql` replaced the single-active-report limitation with a bounded rolling window (two active reports by default); the central scheduler owns report activation and settlement. Migration `0007` and `0008` were recorded as applied in the v2.0.0 rollout history. The “data model proposal,” single-report invariant, and non-goal of increased request frequency below are preserved as historical design notes, not current requirements.
+
+## Original design baseline (historical)
 
 ## Invariants
 - Three daily nodes continue discovery and generic report collection for PC (1), PlayStation (32), Xbox (64).
