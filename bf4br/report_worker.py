@@ -97,7 +97,7 @@ def main():
                 except Exception:
                     LOG.exception("report lease release failed")
             if not STOP:
-                time.sleep(10)
+                time.sleep(5)
 
 if __name__=="__main__":
     main()
