@@ -1,5 +1,7 @@
 # BF4BR database schema and distributed rollout
 
+**Release context:** Latest published stable release is **v2.0.1 (2026-11-07)**. This document contains dated v1.x deployment history and initial-schema descriptions; it is **not a current fleet-version inventory**. v2.0.1 is a graceful-shutdown/upgrade reliability release, with no new migration or configuration requirement; player-detail enrichment remains opt-in and disabled per the published release notes. See [v2.0.1](https://github.com/mauirixxx/BF4-Battle-Reports/releases/tag/v2.0.1), [v2.0.0 rollout history](docs/v2.0.0-rollout.md), and [current schema reference](docs/database-schema-reference.md).
+
 Verified 2026-11-02 against PostgreSQL 18.6 on `reports`, database `bf4_battle_reports`.
 
 > **Current operational schema (verified 2026-11-05):** See [`docs/database-schema-reference.md`](docs/database-schema-reference.md) for the read-only production DDL snapshot of BF4BR queue, coordinator, pacing, heartbeat, assignment, fetch-log and collector-error-history objects. The `0001` migration and the initial rollout values below describe the **2026-11-02 baseline**, not the complete v1.0.10 schema. Do not treat the snapshot as an executable migration or infer that later additions are represented by `0001`.
