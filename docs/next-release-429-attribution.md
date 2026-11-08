@@ -1,6 +1,6 @@
 # BF4BR next release: reliable 429 node attribution (preparation)
 
-Status: **investigation / not released**. Current deployed fleet observed at v1.0.10; proposed next version requires confirmation of release/tag state before numbering.
+**Historical investigation (2026-11-05–06).** This document records earlier v1.0.10/v1.0.11 findings, not the current release status. **Latest published release: v2.0.1 (2026-11-07)**; see [release notes](https://github.com/mauirixxx/BF4-Battle-Reports/releases/tag/v2.0.1). Its worker-shutdown fixes cover HTTP 429 cooldown waits and upgrade drains. The v1.0.10/v1.0.11 status statements and pending release gates below are dated investigation notes, not instructions for a new release. Do not infer live fleet versions from them.
 
 ## Verified implementation facts (2026-11-05)
 
