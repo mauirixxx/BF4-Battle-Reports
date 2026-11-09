@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from bf4br.external_enrichment_selection import random_candidate
 from bf4br.external_enrichment_claim import claim_player_batch
-from bf4br.detail_queue import renew_player, save_player, retry_player
+from bf4br.external_enrichment_ownership import (OwnershipLost, renew_owned, save_owned, retry_owned)
 
 app = FastAPI(title='BF4BR External Enrichment', version='0.1.0', docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -90,37 +90,39 @@ def claim(authorization: str | None = Header(default=None)):
 
 @app.post('/api/v1/work/renew')
 def renew(body: LeaseAction, authorization: str | None = Header(default=None)):
-    authenticate(authorization)
+    worker = authenticate(authorization)
     job = (body.platform, body.report_id, body.persona_id)
     with database() as conn:
-        ok = renew_player(conn, job, body.token, seconds=900)
-    if not ok:
-        raise HTTPException(status_code=409, detail='lease expired or ownership changed')
+        try:
+            renew_owned(conn, job, body.token, worker, seconds=900)
+        except OwnershipLost as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {'renewed': True}
 
 
 @app.post('/api/v1/enrichment')
 def upload(body: Submission, authorization: str | None = Header(default=None)):
-    authenticate(authorization)
+    worker = authenticate(authorization)
     job = (body.platform, body.report_id, body.persona_id)
     with database() as conn:
         try:
-            save_player(conn, job, body.token, body.payload)
+            save_owned(conn, job, body.token, worker, body.payload)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except RuntimeError as exc:
+        except (RuntimeError, OwnershipLost) as exc:
             raise HTTPException(status_code=409, detail='lease expired or ownership changed') from exc
     return {'stored': True}
 
 
 @app.post('/api/v1/work/fail')
 def fail(body: Failure, authorization: str | None = Header(default=None)):
-    authenticate(authorization)
+    worker = authenticate(authorization)
     job = (body.platform, body.report_id, body.persona_id)
     with database() as conn:
-        ok = retry_player(conn, job, body.token, body.reason, body.retry_seconds)
-    if not ok:
-        raise HTTPException(status_code=409, detail='lease expired or ownership changed')
+        try:
+            retry_owned(conn, job, body.token, worker, body.reason, body.retry_seconds)
+        except OwnershipLost as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {'released': True}
 
 [executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
