@@ -453,3 +453,8 @@ Applied to production `bf4_battle_reports` on the `reports` host on 2026-11-07 U
 ## v2.0.0 rolling enrichment — migration 0008
 
 Applied on the reports production database on 2026-11-07 UTC. Source: `migrations/0008_rolling_detail_pipeline.sql`. Removes `bf4br_detail_one_active_idx` and adds `bf4br_detail_active_order_idx`, a nonunique partial index over active reports ordered by report timestamp, platform, and report ID. Multiple reports can now be active; the application bounds active reports (default 2). The migration does not seed jobs or activate collectors.
+
+
+## BF4BR → BF4PS read-only identity integration (2026-11-08)
+
+The production BF4PS importer reads existing `public.players` and `public.player_name_history` from BF4BR using a dedicated SELECT-only PostgreSQL role and source-ID checkpoints stored in BF4PS, not BF4BR. No BF4BR schema change was made for this integration. See [BF4PS identity synchronization integration](bf4ps-identity-sync-integration.md) for data flow, platform mapping, timestamp semantics, credentials, operations, and the separate future inbound enrichment API design boundary.
