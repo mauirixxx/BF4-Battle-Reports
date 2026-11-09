@@ -31,11 +31,15 @@ class BatchTests(unittest.TestCase):
         inserts=[s for s,a in conn.statements if 'INSERT INTO bf4br_external_batch_items' in s]
         self.assertEqual(len(inserts),2)
     def test_existing_active_batch_blocks_claim(self):
-        conn=Conn([('old',None),('active',)])
+        conn=Conn([('old',None),('active',),(1,)])
         with self.assertRaises(BatchBusy): start_batch(conn,'worker',lambda c: self.fail('reserved'))
+    def test_expired_batch_sets_cooldown(self):
+        conn=Conn([('old',None),('active',),None,(True,)])
+        self.assertEqual(start_batch(conn,'worker',lambda c: self.fail('reserved')),('cooldown',None))
+        self.assertTrue(any("state='expired'" in sql for sql,_ in conn.statements))
     def test_cooldown_blocks_claim(self):
         conn=Conn([(None,None),(True,)])
-        with self.assertRaises(CooldownActive): start_batch(conn,'worker',lambda c: self.fail('reserved'))
+        self.assertEqual(start_batch(conn,'worker',lambda c: self.fail('reserved')),('cooldown',None))
     def test_finish_requires_settled_items(self):
         conn=Conn([('batch',),(1,)])
         with self.assertRaises(BatchBusy): finish_batch(conn,'worker','batch')

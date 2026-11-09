@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from bf4br.external_enrichment_selection import random_candidate
 from bf4br.external_enrichment_claim import claim_player_batch
+from bf4br.external_enrichment_batch import (start_batch, finish_batch, batch_item_owned, BatchBusy, CooldownActive)
 from bf4br.external_enrichment_ownership import (OwnershipLost, renew_owned, save_owned, retry_owned)
 
 app = FastAPI(title='BF4BR External Enrichment', version='0.1.0', docs_url=None, redoc_url=None, openapi_url=None)
@@ -24,6 +25,7 @@ class Submission(BaseModel):
     persona_id: int = Field(gt=0)
     report_id: int = Field(gt=0)
     token: UUID
+    batch_id: UUID
     payload: dict
 
 
@@ -32,6 +34,11 @@ class LeaseAction(BaseModel):
     persona_id: int = Field(gt=0)
     report_id: int = Field(gt=0)
     token: UUID
+    batch_id: UUID
+
+
+class Completion(BaseModel):
+    batch_id: UUID
 
 
 class Failure(LeaseAction):
@@ -69,30 +76,60 @@ def health():
 def claim(authorization: str | None = Header(default=None)):
     worker = authenticate(authorization)
     with database() as conn:
-        # Selection is advisory; the claim rechecks eligibility transactionally.
-        for _ in range(4):
-            candidate = random_candidate(conn)
-            if candidate is None:
-                break
-            with conn.cursor() as cur:
-                cur.execute('SELECT id FROM players WHERE platform=%s AND persona_id=%s',
-                            (candidate.platform, candidate.persona_id))
-                row = cur.fetchone()
-            if not row:
-                continue
-            reservation = claim_player_batch(conn, row[0], worker)
-            if reservation:
-                return {'platform': reservation.platform, 'persona_id': reservation.persona_id,
-                        'reports': [{'report_id': rid, 'token': token}
-                                    for rid, token in zip(reservation.report_ids, reservation.tokens)]}
-    return {'platform': None, 'persona_id': None, 'reports': []}
+        def reserve(connection):
+            for _ in range(4):
+                candidate = random_candidate(connection)
+                if candidate is None:
+                    break
+                with connection.cursor() as cur:
+                    cur.execute('SELECT id FROM players WHERE platform=%s AND persona_id=%s',
+                                (candidate.platform, candidate.persona_id))
+                    row = cur.fetchone()
+                if row:
+                    result = claim_player_batch(connection, row[0], worker)
+                    if result:
+                        return result
+            return None
+        try:
+            result = start_batch(conn, worker, reserve)
+        except (BatchBusy, CooldownActive) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail='worker disabled') from exc
+        if result == ('cooldown', None):
+            raise HTTPException(status_code=429, detail='worker cooldown still active')
+        if result is None:
+            return {'batch_id': None, 'platform': None, 'persona_id': None, 'reports': []}
+        batch_id, reservation = result
+        return {'batch_id': batch_id, 'platform': reservation.platform,
+                'persona_id': reservation.persona_id,
+                'reports': [{'report_id': rid, 'token': token}
+                            for rid, token in zip(reservation.report_ids, reservation.tokens)]}
+
+
+def verify_item(conn, worker, body):
+    job = (body.platform, body.report_id, body.persona_id)
+    if not batch_item_owned(conn, worker, body.batch_id, job, body.token):
+        raise HTTPException(status_code=409, detail='item is not in an active owned batch')
+    return job
+
+
+@app.post('/api/v1/work/complete')
+def complete(body: Completion, authorization: str | None = Header(default=None)):
+    worker = authenticate(authorization)
+    with database() as conn:
+        try:
+            finish_batch(conn, worker, body.batch_id)
+        except BatchBusy as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {'completed': True, 'cooldown_seconds': 61}
 
 
 @app.post('/api/v1/work/renew')
 def renew(body: LeaseAction, authorization: str | None = Header(default=None)):
     worker = authenticate(authorization)
-    job = (body.platform, body.report_id, body.persona_id)
-    with database() as conn:
+    with database() as conn, conn.transaction():
+        job = verify_item(conn, worker, body)
         try:
             renew_owned(conn, job, body.token, worker, seconds=900)
         except OwnershipLost as exc:
@@ -103,8 +140,8 @@ def renew(body: LeaseAction, authorization: str | None = Header(default=None)):
 @app.post('/api/v1/enrichment')
 def upload(body: Submission, authorization: str | None = Header(default=None)):
     worker = authenticate(authorization)
-    job = (body.platform, body.report_id, body.persona_id)
-    with database() as conn:
+    with database() as conn, conn.transaction():
+        job = verify_item(conn, worker, body)
         try:
             save_owned(conn, job, body.token, worker, body.payload)
         except ValueError as exc:
@@ -117,8 +154,8 @@ def upload(body: Submission, authorization: str | None = Header(default=None)):
 @app.post('/api/v1/work/fail')
 def fail(body: Failure, authorization: str | None = Header(default=None)):
     worker = authenticate(authorization)
-    job = (body.platform, body.report_id, body.persona_id)
-    with database() as conn:
+    with database() as conn, conn.transaction():
+        job = verify_item(conn, worker, body)
         try:
             retry_owned(conn, job, body.token, worker, body.reason, body.retry_seconds)
         except OwnershipLost as exc:
