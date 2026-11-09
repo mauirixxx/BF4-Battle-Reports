@@ -9,15 +9,42 @@ import os
 from contextlib import contextmanager
 from uuid import UUID
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse
 
 from bf4br.external_enrichment_selection import random_candidate
 from bf4br.external_enrichment_claim import claim_player_batch
 from bf4br.external_enrichment_batch import (start_batch, finish_batch, batch_item_owned, BatchBusy, CooldownActive)
 from bf4br.external_enrichment_ownership import (OwnershipLost, renew_owned, save_owned, retry_owned)
 
+MAX_REQUEST_BYTES = 2 * 1024 * 1024
+
 app = FastAPI(title='BF4BR External Enrichment', version='0.1.0', docs_url=None, redoc_url=None, openapi_url=None)
+
+
+@app.middleware('http')
+async def enforce_body_limit(request: Request, call_next):
+    if request.method in ('POST', 'PUT', 'PATCH'):
+        length = request.headers.get('content-length')
+        if length is not None:
+            try:
+                if int(length) > MAX_REQUEST_BYTES:
+                    return JSONResponse(status_code=413, content={'detail': 'request too large'})
+            except ValueError:
+                return JSONResponse(status_code=400, content={'detail': 'invalid content-length'})
+        chunks = []
+        total = 0
+        async for chunk in request.stream():
+            total += len(chunk)
+            if total > MAX_REQUEST_BYTES:
+                return JSONResponse(status_code=413, content={'detail': 'request too large'})
+            chunks.append(chunk)
+        body = b''.join(chunks)
+        async def receive():
+            return {'type': 'http.request', 'body': body, 'more_body': False}
+        request._receive = receive
+    return await call_next(request)
 
 
 class Submission(BaseModel):
@@ -47,14 +74,15 @@ class Failure(LeaseAction):
 
 
 def authenticate(authorization: str | None) -> str:
-    expected = os.environ.get('BF4BR_API_KEY_SHA256', '')
-    worker = os.environ.get('BF4BR_API_WORKER_ID', '')
-    if len(expected) != 64 or not worker or not authorization or not authorization.startswith('Bearer '):
+    if not authorization or not authorization.startswith('Bearer '):
         raise HTTPException(status_code=401, detail='unauthorized')
-    actual = hashlib.sha256(authorization[7:].encode()).hexdigest()
-    if not hmac.compare_digest(actual, expected):
+    supplied = hashlib.sha256(authorization[7:].encode()).hexdigest()
+    with database() as conn, conn.cursor() as cur:
+        cur.execute("SELECT worker_id,key_sha256 FROM bf4br_external_workers WHERE key_sha256=%s AND enabled", (supplied,))
+        row = cur.fetchone()
+    if not row or not hmac.compare_digest(supplied, row[1].strip()):
         raise HTTPException(status_code=401, detail='unauthorized')
-    return worker
+    return row[0]
 
 
 @contextmanager
