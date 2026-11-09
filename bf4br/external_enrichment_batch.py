@@ -22,12 +22,12 @@ def start_batch(conn, worker, reserve):
     """
     with conn.transaction():
         with conn.cursor() as cur:
-            cur.execute('''SELECT active_batch_id,cooldown_until FROM bf4br_external_workers
+            cur.execute('''SELECT active_batch_id FROM bf4br_external_workers
                 WHERE worker_id=%s AND enabled FOR UPDATE''', (worker,))
             row = cur.fetchone()
             if row is None:
                 raise PermissionError('unknown or disabled worker')
-            active_batch, _ = row
+            active_batch = row[0]
             if active_batch is not None:
                 cur.execute('''SELECT state FROM bf4br_external_batches
                     WHERE batch_id=%s''', (active_batch,))
