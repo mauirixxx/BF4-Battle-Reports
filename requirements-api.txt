@@ -1,0 +1,5 @@
+-r requirements.txt
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
+
+[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]

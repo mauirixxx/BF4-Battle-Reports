@@ -42,6 +42,13 @@ def claim_player_batch(conn, player_id: int, worker: str, *, limit: int = MAX_RE
                 FROM report_players rp
                 JOIN battle_reports r ON r.id=rp.report_id AND r.platform=%s
                 WHERE rp.player_id=%s
+                  -- Do not add roster rows to active/complete report-centric jobs:
+                  -- their expected_players invariant would otherwise change.
+                  AND NOT EXISTS (
+                    SELECT 1 FROM bf4br_detail_reports parent
+                    WHERE parent.platform=r.platform
+                      AND parent.battlelog_report_id=r.battlelog_report_id
+                      AND parent.state IN ('active','complete'))
                   AND NOT EXISTS (
                     SELECT 1 FROM bf4br_player_report_raw raw
                     WHERE raw.platform=r.platform

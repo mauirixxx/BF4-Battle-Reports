@@ -29,7 +29,7 @@ class ClaimTests(unittest.TestCase):
         self.assertEqual((result.platform,result.persona_id,result.report_ids),(32,123,(900,800)))
         self.assertEqual(len(set(result.tokens)),2)
         sql=' '.join(s for s,_ in conn.statements)
-        for fragment in ('FOR UPDATE SKIP LOCKED','bf4br_player_report_raw','ON CONFLICT DO NOTHING',"state='leased'",'lease_until<=now()'):
+        for fragment in ('FOR UPDATE SKIP LOCKED','bf4br_player_report_raw',"parent.state IN ('active','complete')",'ON CONFLICT DO NOTHING',"state='leased'",'lease_until<=now()'):
             self.assertIn(fragment,sql)
     def test_locked_player_returns_no_claim(self):
         conn=Conn([None])
