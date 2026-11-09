@@ -1,7 +1,6 @@
 """Opt-in BF4BR external enrichment HTTP API. Not wired to production.
 
-Environment: BF4BR_API_KEY_SHA256 (hex digest), BF4BR_API_WORKER_ID,
-BF4BR_DSN. Run only behind a trusted HTTPS reverse proxy.
+Environment: BF4BR_DSN. Worker keys are registered by SHA-256 in the database. Run only behind a trusted HTTPS reverse proxy.
 """
 import hashlib
 import hmac
@@ -15,7 +14,7 @@ from fastapi.responses import JSONResponse
 
 from bf4br.external_enrichment_selection import random_candidate
 from bf4br.external_enrichment_claim import claim_player_batch
-from bf4br.external_enrichment_batch import (start_batch, finish_batch, batch_item_owned, BatchBusy, CooldownActive)
+from bf4br.external_enrichment_batch import (start_batch, finish_batch, batch_item_owned, record_rate_limit, BatchBusy, CooldownActive)
 from bf4br.external_enrichment_ownership import (OwnershipLost, renew_owned, save_owned, retry_owned)
 
 MAX_REQUEST_BYTES = 2 * 1024 * 1024
@@ -66,6 +65,11 @@ class LeaseAction(BaseModel):
 
 class Completion(BaseModel):
     batch_id: UUID
+
+
+class RateLimit(BaseModel):
+    batch_id: UUID
+    retry_after_seconds: int = Field(default=180, ge=180, le=86400)
 
 
 class Failure(LeaseAction):
@@ -151,6 +155,18 @@ def complete(body: Completion, authorization: str | None = Header(default=None))
         except BatchBusy as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {'completed': True, 'cooldown_seconds': 61}
+
+
+@app.post('/api/v1/work/rate-limited')
+def rate_limited(body: RateLimit, authorization: str | None = Header(default=None)):
+    worker = authenticate(authorization)
+    with database() as conn:
+        try:
+            record_rate_limit(conn, worker, body.batch_id,
+                              retry_after_seconds=body.retry_after_seconds)
+        except BatchBusy as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {'cooldown_seconds': body.retry_after_seconds, 'recorded': True}
 
 
 @app.post('/api/v1/work/renew')

@@ -126,4 +126,29 @@ def batch_item_owned(conn, worker, batch_id, job, token):
               AND i.persona_id=%s AND i.lease_token=%s''', (batch_id,worker,*job,token))
         return cur.fetchone() is not None
 
+
+def record_rate_limit(conn, worker, batch_id, *, retry_after_seconds=180):
+    """Persist worker-local Battlelog 429 cooldown, never shortening it.
+
+    Requires a current active batch. Does not release individual leases;
+    workers must renew/retry them independently.
+    """
+    if not 180 <= retry_after_seconds <= 86400:
+        raise ValueError('rate-limit cooldown must be 180..86400 seconds')
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.execute('''SELECT active_batch_id FROM bf4br_external_workers
+                WHERE worker_id=%s AND enabled FOR UPDATE''', (worker,))
+            row = cur.fetchone()
+            if not row or row[0] != batch_id:
+                raise BatchBusy('batch not owned by worker')
+            cur.execute('''SELECT 1 FROM bf4br_external_batches
+                WHERE batch_id=%s AND worker_id=%s AND state='active' ''', (batch_id,worker))
+            if not cur.fetchone():
+                raise BatchBusy('batch is not active')
+            cur.execute('''UPDATE bf4br_external_workers
+                SET cooldown_until=GREATEST(cooldown_until,
+                    now()+(%s * interval '1 second')),updated_at=now()
+                WHERE worker_id=%s''', (retry_after_seconds,worker))
+
 [executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]

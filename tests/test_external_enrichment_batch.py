@@ -51,4 +51,16 @@ class BatchTests(unittest.TestCase):
 
 if __name__=='__main__': unittest.main()
 
+class RateLimitTests(unittest.TestCase):
+    def test_rate_limit_is_persisted_with_floor(self):
+        from bf4br.external_enrichment_batch import record_rate_limit
+        conn=Conn([('batch',),(1,)])
+        record_rate_limit(conn,'worker','batch',retry_after_seconds=300)
+        self.assertTrue(any('cooldown_until=GREATEST' in sql and args[0]==300 for sql,args in conn.statements))
+        with self.assertRaises(ValueError): record_rate_limit(conn,'worker','batch',retry_after_seconds=179)
+    def test_foreign_batch_cannot_set_cooldown(self):
+        from bf4br.external_enrichment_batch import record_rate_limit
+        conn=Conn([('other',)])
+        with self.assertRaises(BatchBusy): record_rate_limit(conn,'worker','batch')
+
 [executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
