@@ -57,4 +57,8 @@ Current validation is **eight mock-based unit tests** covering selection and res
 
 `bf4br/external_enrichment_ownership.py` wraps the existing v2 save/renew/retry operations with an explicit `lease_owner`, `lease_token`, `state='leased'`, unexpired-lease check under `SELECT ... FOR UPDATE`, held through the mutation in one transaction. The API now uses these worker-specific wrappers, so possession of another worker's UUID alone is not sufficient to mutate its job. This is a development hardening step, **not** a production authorization audit. The API still lacks per-worker key registry, server-side rate/cooldown enforcement, idempotent acknowledgements, batch completion, and payload-size limits. FastAPI dependencies are not installed in system Python; API tests remain skipped until isolated installation.
 
+## Development checkpoint — proposed durable batch schema (not deployed)
+
+Migration `0009_external_enrichment_batches.sql` proposes a worker registry, durable batch header and batch item ledger. `bf4br/external_enrichment_batch.py` prototypes serialized per-worker batch creation and completion plus a conservative 61-second server-side cooldown beginning at batch completion acknowledgement. This **does not yet wire into the HTTP API** and has not been integration tested. Important outstanding design work: batch recovery on crashes, expired batch ownership, 429 cooldown reporting, token ownership checks against batch items, lost-response idempotency, and ensuring `start_batch` and the reservation callback use one atomic transaction. Do not deploy this migration until these gates are resolved.
+
 [executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]

@@ -458,3 +458,9 @@ Applied on the reports production database on 2026-11-07 UTC. Source: `migration
 ## BF4BR → BF4PS read-only identity integration (2026-11-08)
 
 The production BF4PS importer reads existing `public.players` and `public.player_name_history` from BF4BR using a dedicated SELECT-only PostgreSQL role and source-ID checkpoints stored in BF4PS, not BF4BR. No BF4BR schema change was made for this integration. See [BF4PS identity synchronization integration](bf4ps-identity-sync-integration.md) for data flow, platform mapping, timestamp semantics, credentials, operations, and the separate future inbound enrichment API design boundary.
+
+## Proposed external enrichment batch tracking — migration 0009 (NOT APPLIED)
+
+`migrations/0009_external_enrichment_batches.sql` is a **development proposal**, not a production schema assertion. It adds `bf4br_external_workers` (worker_id PK, unique SHA-256 key hash, enabled, cooldown_until, active_batch_id, timestamps), `bf4br_external_batches` (UUID PK, worker FK, platform/persona, state, timestamps), and `bf4br_external_batch_items` (batch/report/persona composite PK, UUID lease token, FK to the existing `bf4br_detail_players` triple). A deferrable FK ties the worker's active batch to the batch table. The migration intentionally does not grant access to `bf4br_collector`; a separate API role and least-privilege grants require review. No production migrations or grants have been applied. Batch membership is an audit/ownership ledger, not an independent competing reservation mechanism: `bf4br_detail_players` remains authoritative for job leases.
+
+[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
