@@ -43,4 +43,10 @@ Avoid `ORDER BY random()` across the full million-plus-player table. Use an inde
 4. Unit and PostgreSQL integration tests: 40 newest **unenriched** ordering, duplicates, concurrent claims, stale token, invalid persona, partial completion, retries, crash, 429, and compatibility with existing report-centric workers.
 5. Local loopback API canary, Apache `/api` routing test, then one external worker canary. No fleet changes or broad activation without acceptance results.
 
+## Development checkpoint — atomic player/report reservation (2026-11-09 UTC)
+
+`bf4br/external_enrichment_selection.py` provides advisory read-only candidate discovery. `bf4br/external_enrichment_claim.py` now provides a **transactional reservation primitive**: lock one `players` row with `FOR UPDATE SKIP LOCKED`, find up to 40 newest eligible report memberships, create missing report/job parents, and fence each claimed `bf4br_detail_players` row with its own UUID token and lease. It rechecks durable raw duplicates and existing job leases during the update. This reuses the existing v2 job lease table rather than creating an incompatible second queue. It does **not** activate a report or mark a report complete. The API layer must use the returned per-report tokens, not treat them as one shared token.
+
+Current validation is **eight mock-based unit tests** covering selection and reservation SQL structure, limits and empty/locked-player behavior. These do not establish real PostgreSQL transactional behavior, fairness, speed, or compatibility under concurrent production writes. No database migration or production listener has been applied. Before deployment: reconcile the report-centric coordinator settlement behavior, test live-schema-compatible transactions inside a rolled-back integration database, test concurrent claims, add claim renewal and explicit failure/release handling, and implement authenticated API endpoints. Avoid enabling this development primitive directly on production.
+
 [executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
