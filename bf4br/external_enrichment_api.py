@@ -15,35 +15,60 @@ from fastapi.responses import JSONResponse
 from bf4br.external_enrichment_selection import random_candidate
 from bf4br.external_enrichment_claim import claim_player_batch
 from bf4br.external_enrichment_batch import (start_batch, finish_batch, batch_item_owned, record_rate_limit, BatchBusy, CooldownActive)
-from bf4br.external_enrichment_ownership import (OwnershipLost, renew_owned, save_owned, retry_owned)
+from bf4br.external_enrichment_ownership import (OwnershipLost, renew_owned, save_owned, retry_owned, acknowledge_saved)
 
 MAX_REQUEST_BYTES = 2 * 1024 * 1024
 
 app = FastAPI(title='BF4BR External Enrichment', version='0.1.0', docs_url=None, redoc_url=None, openapi_url=None)
 
 
-@app.middleware('http')
-async def enforce_body_limit(request: Request, call_next):
-    if request.method in ('POST', 'PUT', 'PATCH'):
-        length = request.headers.get('content-length')
+class RequestBodyLimit:
+    """Pure ASGI body limiter, including chunked bodies without Content-Length."""
+    def __init__(self, inner):
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send):
+        if scope['type'] != 'http' or scope.get('method') not in ('POST','PUT','PATCH'):
+            return await self.inner(scope, receive, send)
+        headers = dict(scope.get('headers', []))
+        length = headers.get(b'content-length')
         if length is not None:
             try:
-                if int(length) > MAX_REQUEST_BYTES:
-                    return JSONResponse(status_code=413, content={'detail': 'request too large'})
+                invalid = int(length) < 0
+                oversized = int(length) > MAX_REQUEST_BYTES
             except ValueError:
-                return JSONResponse(status_code=400, content={'detail': 'invalid content-length'})
-        chunks = []
-        total = 0
-        async for chunk in request.stream():
+                invalid, oversized = True, False
+            if invalid or oversized:
+                code = 400 if invalid else 413
+                response = JSONResponse(status_code=code, content={'detail': 'invalid content-length' if invalid else 'request too large'})
+                return await response(scope, receive, send)
+        chunks, total = [], 0
+        while True:
+            message = await receive()
+            if message['type'] == 'http.disconnect':
+                return
+            if message['type'] != 'http.request':
+                continue
+            chunk = message.get('body', b'')
             total += len(chunk)
             if total > MAX_REQUEST_BYTES:
-                return JSONResponse(status_code=413, content={'detail': 'request too large'})
+                response = JSONResponse(status_code=413, content={'detail': 'request too large'})
+                return await response(scope, receive, send)
             chunks.append(chunk)
-        body = b''.join(chunks)
-        async def receive():
-            return {'type': 'http.request', 'body': body, 'more_body': False}
-        request._receive = receive
-    return await call_next(request)
+            if not message.get('more_body', False):
+                break
+        data = b''.join(chunks)
+        delivered = False
+        async def replay():
+            nonlocal delivered
+            if not delivered:
+                delivered = True
+                return {'type':'http.request','body':data,'more_body':False}
+            return {'type':'http.disconnect'}
+        return await self.inner(scope, replay, send)
+
+
+app.add_middleware(RequestBodyLimit)
 
 
 class Submission(BaseModel):
@@ -185,14 +210,17 @@ def renew(body: LeaseAction, authorization: str | None = Header(default=None)):
 def upload(body: Submission, authorization: str | None = Header(default=None)):
     worker = authenticate(authorization)
     with database() as conn, conn.transaction():
-        job = verify_item(conn, worker, body)
+        job = (body.platform, body.report_id, body.persona_id)
         try:
+            if acknowledge_saved(conn, job, body.token, worker, body.batch_id, body.payload):
+                return {'stored': True, 'already_stored': True}
+            verify_item(conn, worker, body)
             save_owned(conn, job, body.token, worker, body.payload)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except (RuntimeError, OwnershipLost) as exc:
             raise HTTPException(status_code=409, detail='lease expired or ownership changed') from exc
-    return {'stored': True}
+    return {'stored': True, 'already_stored': False}
 
 
 @app.post('/api/v1/work/fail')
