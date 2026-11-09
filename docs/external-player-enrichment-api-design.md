@@ -71,4 +71,8 @@ Created a separate `bf4br_external_api_test` PostgreSQL database on the reports 
 
 This is a first integration gate, not rollout approval: additional tests are required for the existing report-centric coordinator, cross-worker report overlaps, crashes and lease expiry, 429 policy, HTTP authentication and payload bounds, and concurrency stress. No production migration, service, or proxy change was made.
 
+## Crash/recovery and coordinator integration (scratch, 2026-11-09)
+
+Added `tests/integration_external_enrichment_recovery.py`, run after the first scratch integration fixture. **PASS**: real report-centric `activate()` preserves its expected-player roster invariant; player-centric selection skips the activated report; forced lease expiration simulates a dead worker; the next claim expires its abandoned batch and persists a 61-second cooldown; a later claim can reclaim the eligible work. Added `FOR UPDATE` on the external worker row during batch-item membership validation to serialize it against batch completion and replacement (API mutation handlers hold the surrounding transaction). These checks are isolated to `bf4br_external_api_test`; no production database modification. Outstanding: 429-specific server cooldown persistence, real HTTP-level tests and dependency installation, per-worker API-key registry, upload retry idempotency, request size limits, and stress testing with multiple distinct players.
+
 [executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]

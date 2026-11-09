@@ -3,7 +3,6 @@
 Requires migration 0009. Never call on production before migration rollout.
 """
 from uuid import uuid4
-from datetime import datetime, timezone
 
 
 class BatchBusy(Exception):
@@ -41,6 +40,8 @@ def start_batch(conn, worker, reserve):
                           AND job.lease_until>now() LIMIT 1''', (active_batch,))
                     if cur.fetchone():
                         raise BatchBusy('worker already owns an active batch')
+                    # Abandonment is allowed only after all old leases expire.
+                    # Reclaiming expired jobs is done by normal claim fencing.
                     cur.execute('''UPDATE bf4br_external_batches SET state='expired',updated_at=now()
                         WHERE batch_id=%s AND state='active' ''', (active_batch,))
                     cur.execute('''UPDATE bf4br_external_workers SET active_batch_id=NULL,
@@ -92,6 +93,8 @@ def finish_batch(conn, worker, batch_id, *, cooldown_seconds=61):
                   AND job.lease_until>now() LIMIT 1''', (batch_id,))
             if cur.fetchone():
                 raise BatchBusy('batch has outstanding leased jobs')
+            # A completed batch must not silently discard items that were
+            # reassigned, expired or lost. Those are explicit retry outcomes.
             cur.execute('''UPDATE bf4br_external_batches SET state='completed',
                 completed_at=now(),updated_at=now()
                 WHERE batch_id=%s AND worker_id=%s AND state='active' ''', (batch_id,worker))
@@ -105,15 +108,22 @@ def finish_batch(conn, worker, batch_id, *, cooldown_seconds=61):
 
 
 def batch_item_owned(conn, worker, batch_id, job, token):
-    """Require the item to belong to the worker's active durable batch."""
+    """Lock worker lifecycle, then verify active batch and membership.
+
+    Caller must hold a transaction through the subsequent job mutation.
+    This serializes against finish_batch/start_batch, which lock the worker.
+    """
     with conn.cursor() as cur:
-        cur.execute('''SELECT 1 FROM bf4br_external_workers w
-            JOIN bf4br_external_batches b ON b.batch_id=w.active_batch_id
+        cur.execute('''SELECT active_batch_id FROM bf4br_external_workers
+            WHERE worker_id=%s AND enabled FOR UPDATE''', (worker,))
+        row=cur.fetchone()
+        if not row or row[0]!=batch_id:
+            return False
+        cur.execute('''SELECT 1 FROM bf4br_external_batches b
             JOIN bf4br_external_batch_items i ON i.batch_id=b.batch_id
-            WHERE w.worker_id=%s AND w.enabled AND b.worker_id=w.worker_id
-              AND b.state='active' AND b.batch_id=%s
+            WHERE b.batch_id=%s AND b.worker_id=%s AND b.state='active'
               AND i.platform=%s AND i.battlelog_report_id=%s
-              AND i.persona_id=%s AND i.lease_token=%s''', (worker,batch_id,*job,token))
+              AND i.persona_id=%s AND i.lease_token=%s''', (batch_id,worker,*job,token))
         return cur.fetchone() is not None
 
 [executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
