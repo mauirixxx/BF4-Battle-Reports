@@ -101,4 +101,8 @@ Created a dedicated `/opt/bf4br-external-api/.venv` on reports, installed API re
 
 Prepared but **did not install** `deploy/bf4br-external-api.service`, `deploy/bf4br-external-api-apache.conf`, and `deploy/bf4br-external-api-db-grants.sql`. The service template uses a dedicated OS account and environment file. Apache template is for the existing `tcou` vhost and would require binding Uvicorn to the reports private interface plus firewall restriction to tcou. The SQL is a reviewed-grants starting point, not an executed migration: create `bf4br_api` without inheriting collector privileges and verify the exact permissions against the production schema before use. No production DB migrations, grants, Apache edits or systemd changes have been made.
 
+## Production schema rollout checkpoint (2026-11-10 UTC)
+
+Production `bf4_battle_reports` migration 0009 was applied successfully with `ON_ERROR_STOP=1`; three new tables, indexes and constraints created. PostgreSQL login role `bf4br_api` created without elevated role/database privileges; reviewed `deploy/bf4br-external-api-db-grants.sql` applied. Read-only verification confirmed tables owned by postgres and the restricted login role. The OS account creation command was blocked by remote command policy, so no systemd service or live API endpoint was enabled; the prepared unit template was corrected to use `bf4br_api` as the OS user/group. Existing collectors unchanged. Before startup, verify peer/local DB authentication for the OS account and configure the service environment; then validate proxy and a single worker.
+
 [executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]

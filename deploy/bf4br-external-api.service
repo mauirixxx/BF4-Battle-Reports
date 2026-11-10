@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=bf4br-api
-Group=bf4br-api
+User=bf4br_api
+Group=bf4br_api
 WorkingDirectory=/opt/bf4br-external-api
 EnvironmentFile=/etc/bf4br-external-api.env
 ExecStart=/opt/bf4br-external-api/.venv/bin/uvicorn bf4br.external_enrichment_api:app --host 127.0.0.1 --port 18765 --no-access-log
