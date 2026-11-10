@@ -76,6 +76,27 @@ class ExternalWorkerTests(unittest.TestCase):
         self.assertIn("unexpected JSON type: list", captured.output[0])
         self.assertIn("unexpected JSON type: list", next(body["reason"] for name, body in calls if name == "work/fail"))
 
+    def test_continuous_worker_retries_temporary_transport_failure(self):
+        from tempfile import NamedTemporaryFile
+        with NamedTemporaryFile(mode="w", encoding="utf-8") as secret:
+            secret.write("test-secret")
+            secret.flush()
+            with patch.object(worker, "run_batch", side_effect=[OSError("offline"),
+                     {"claimed": 0}]), patch.object(worker.time, "sleep",
+                     side_effect=[None, KeyboardInterrupt]) as sleeper:
+                with self.assertRaises(KeyboardInterrupt):
+                    worker.main(["--key-file", secret.name])
+            self.assertEqual(sleeper.call_args_list[0].args[0], 15)
+            self.assertEqual(sleeper.call_args_list[1].args[0], 61)
+
+    def test_continuous_worker_stops_on_invalid_credentials(self):
+        from tempfile import NamedTemporaryFile
+        with NamedTemporaryFile(mode="w", encoding="utf-8") as secret:
+            secret.write("test-secret")
+            secret.flush()
+            with patch.object(worker, "run_batch", side_effect=worker.APIError(401, "unauthorized")):
+                self.assertEqual(worker.main(["--key-file", secret.name]), 3)
+
     def test_retry_after(self):
         self.assertEqual(worker.retry_after_seconds("180"), 180)
         self.assertEqual(worker.retry_after_seconds(None), 0)
