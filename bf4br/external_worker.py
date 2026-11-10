@@ -207,6 +207,7 @@ def main(argv=None):
             backoff = min(300, backoff * 2)
             continue
         backoff = 15
+        exhausted_persona = persona is not None and result["claimed"] == 0
         if result["claimed"]:
             persona = result["persona"]
             successes += result["stored"]
@@ -218,8 +219,11 @@ def main(argv=None):
             successes = 0
         if args.once:
             return 0
-        # The API persists the cooldown from the batch-completion acknowledgement.
-        # Extra waiting also prevents tight loops when no work is available.
+        # An empty continuation consumed no Battlelog requests: select a new
+        # random persona immediately. Still rest after real batches and when
+        # no random work exists, avoiding a tight polling loop.
+        if exhausted_persona:
+            continue
         time.sleep(61)
 
 
