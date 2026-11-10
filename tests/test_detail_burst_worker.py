@@ -15,7 +15,7 @@ class BurstWorkerTests(unittest.TestCase):
             saved=[]
             with patch.object(worker.node_cooldown, 'STATE', state), \
                  patch.object(worker.node_cooldown, 'policy_values', return_value=(10,180)), \
-                 patch.object(worker, 'claim_player', side_effect=lambda *_: next(claims, None)), \
+                 patch.object(worker, 'claim_player', side_effect=lambda *a, **kw: next(claims, None)), \
                  patch.object(worker, 'renew_player', return_value=True), \
                  patch.object(worker, 'save_player', side_effect=lambda c,j,t,p:saved.append(j)), \
                  patch.object(worker, 'retry_player', return_value=False):
@@ -25,11 +25,52 @@ class BurstWorkerTests(unittest.TestCase):
             self.assertEqual(len(saved),40)
             self.assertGreaterEqual(json.loads(state.read_text())['until_epoch'], __import__('time').time()+59)
 
+    def test_null_response_retried_and_saved(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d)/'cooldown.json'
+            attempts=[]
+            def fetch(p,r,i):
+                attempts.append(i)
+                return (200, None if len(attempts)<3 else {'id':r,'platform':p}, None, None)
+            with patch.object(worker.node_cooldown, 'STATE', state), \
+                 patch.object(worker.node_cooldown, 'policy_values', return_value=(10,180)), \
+                 patch.object(worker, 'RETRY_DELAYS', (0,0,0,0)), \
+                 patch.object(worker, 'claim_player', side_effect=[((1,10,99),'token'),None]) as claim, \
+                 patch.object(worker, 'renew_player', return_value=True) as renew, \
+                 patch.object(worker, 'save_player') as save, \
+                 patch.object(worker, 'retry_player') as retry:
+                count, limited=worker.process_batch(object(), 'node', fetcher=fetch)
+            self.assertEqual((count,limited),(1,False))
+            self.assertEqual(len(attempts),3)
+            self.assertEqual(claim.call_args_list[0].kwargs['lease_seconds'],240)
+            self.assertEqual(renew.call_args_list[0].kwargs['seconds'],240)
+            save.assert_called_once()
+            retry.assert_not_called()
+
+    def test_five_failed_attempts_return_to_queue(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d)/'cooldown.json'
+            attempts=[]
+            def fetch(p,r,i):
+                attempts.append(i)
+                return (200,None,None,None)
+            with patch.object(worker.node_cooldown, 'STATE', state), \
+                 patch.object(worker.node_cooldown, 'policy_values', return_value=(10,180)), \
+                 patch.object(worker, 'RETRY_DELAYS', (0,0,0,0)), \
+                 patch.object(worker, 'claim_player', side_effect=[((1,10,99),'token'),None]), \
+                 patch.object(worker, 'renew_player', return_value=True), \
+                 patch.object(worker, 'save_player') as save, \
+                 patch.object(worker, 'retry_player') as retry:
+                count, limited=worker.process_batch(object(), 'node', fetcher=fetch)
+            self.assertEqual(len(attempts),5)
+            retry.assert_called_once()
+            save.assert_not_called()
+
     def test_claims_are_incremental_and_stop_on_429(self):
         with tempfile.TemporaryDirectory() as d:
             state = Path(d)/'cooldown.json'
             claimed=[]
-            def claim(*_):
+            def claim(*args, **kwargs):
                 i=len(claimed)+1
                 claimed.append(i)
                 return ((1, 10, i), f'token{i}')
