@@ -24,18 +24,18 @@ class Conn:
 
 class ClaimTests(unittest.TestCase):
     def test_claim_reserves_one_player_only(self):
-        conn=Conn([(32,123),[(900,None),(800,None)],(900,),(800,)])
+        conn=Conn([(True,),(32,123),[(900,None),(800,None)],(900,),(800,)])
         result=claim_player_batch(conn,15,'worker-a')
         self.assertEqual((result.platform,result.persona_id,result.report_ids),(32,123,(900,800)))
         self.assertEqual(len(set(result.tokens)),2)
         sql=' '.join(s for s,_ in conn.statements)
-        for fragment in ('FOR UPDATE SKIP LOCKED','bf4br_player_report_raw',"parent.state IN ('active','complete')",'ON CONFLICT DO NOTHING',"state='leased'",'lease_until<=now()'):
+        for fragment in ('pg_try_advisory_xact_lock','bf4br_player_report_raw',"parent.state IN ('active','complete')",'ON CONFLICT DO NOTHING',"state='leased'",'lease_until<=now()'):
             self.assertIn(fragment,sql)
     def test_locked_player_returns_no_claim(self):
-        conn=Conn([None])
+        conn=Conn([(False,)])
         self.assertIsNone(claim_player_batch(conn,10,'worker-a'))
     def test_empty_reports(self):
-        conn=Conn([(1,123),[]])
+        conn=Conn([(True,),(1,123),[]])
         self.assertIsNone(claim_player_batch(conn,10,'worker-a'))
     def test_limits(self):
         for n in (0,41):
@@ -43,5 +43,3 @@ class ClaimTests(unittest.TestCase):
         with self.assertRaises(ValueError): claim_player_batch(Conn([]),10,'worker',lease_seconds=20)
 
 if __name__=='__main__': unittest.main()
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
