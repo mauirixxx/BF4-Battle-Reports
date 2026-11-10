@@ -50,7 +50,7 @@ def acknowledge_saved(conn, job, token, worker, batch_id, payload):
     """
     import json
     platform, rid, persona = job
-    if not isinstance(payload, dict) or payload.get('id') != rid or payload.get('platform') != platform:
+    if not isinstance(payload, dict) or str(payload.get('id')) != str(rid) or str(payload.get('platform')) != str(platform):
         raise ValueError('player report identity mismatch')
     if not isinstance(payload.get('players'), dict) or str(persona) not in payload['players']:
         raise ValueError('persona missing from report roster')
@@ -74,5 +74,3 @@ def acknowledge_saved(conn, job, token, worker, batch_id, payload):
               AND r.raw_response=%s::jsonb
             FOR UPDATE OF p''', (batch_id,worker,*job,token,json.dumps(payload)))
         return cur.fetchone() is not None
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
