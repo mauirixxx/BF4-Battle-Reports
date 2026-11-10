@@ -90,7 +90,11 @@ def run_batch(base, key, *, concurrency=4):
                 LOG.warning("Upload failed for report %s: %s", item["report_id"], exc)
         reason = f"Battlelog HTTP {status}: {error or 'no valid payload'}"
         if status == 200:
-            reason = "Invalid or unaccepted player-detail payload"
+            if not isinstance(payload, dict):
+                reason = f"Battlelog HTTP 200 unexpected JSON type: {type(payload).__name__}"
+            else:
+                reason = "Invalid or unaccepted player-detail payload"
+            LOG.warning("Report %s not uploaded: %s", item["report_id"], reason)
         api_post(base, key, "work/fail",
                  {**action(item), "reason": reason[:500],
                   "retry_seconds": max(60, min(86400, max_retry or 1200))})
