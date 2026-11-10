@@ -26,7 +26,7 @@ def main():
             except OwnershipLost:
                 pass
         with conn.cursor() as c:
-            c.execute('SELECT count(*) FROM bf4br_player_report_raw')
+            c.execute('SELECT count(*) FROM bf4br_player_report_raw WHERE platform=%s AND battlelog_report_id=%s AND persona_id=%s',job)
             assert c.fetchone()[0]==1
     print('PASS: completed-batch duplicate ACK, changed-payload rejection, foreign-worker rejection, no duplicate raw rows')
 if __name__=='__main__': main()
