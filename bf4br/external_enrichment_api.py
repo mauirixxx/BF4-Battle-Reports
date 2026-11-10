@@ -88,6 +88,12 @@ class LeaseAction(BaseModel):
     batch_id: UUID
 
 
+class ClaimRequest(BaseModel):
+    platform: int | None = None
+    persona_id: int | None = Field(default=None, gt=0)
+    limit: int = Field(default=40, ge=1, le=40)
+
+
 class Completion(BaseModel):
     batch_id: UUID
 
@@ -130,10 +136,18 @@ def health():
 
 
 @app.post('/api/v1/work/claim')
-def claim(authorization: str | None = Header(default=None)):
+def claim(body: ClaimRequest, authorization: str | None = Header(default=None)):
     worker = authenticate(authorization)
     with database() as conn:
         def reserve(connection):
+            if body.persona_id is not None:
+                if body.platform not in (1, 32, 64):
+                    raise HTTPException(status_code=422, detail='platform required for persona continuation')
+                with connection.cursor() as cur:
+                    cur.execute('SELECT id FROM players WHERE platform=%s AND persona_id=%s',
+                                (body.platform, body.persona_id))
+                    row = cur.fetchone()
+                return claim_player_batch(connection, row[0], worker, limit=body.limit) if row else None
             for _ in range(4):
                 candidate = random_candidate(connection)
                 if candidate is None:
@@ -143,7 +157,7 @@ def claim(authorization: str | None = Header(default=None)):
                                 (candidate.platform, candidate.persona_id))
                     row = cur.fetchone()
                 if row:
-                    result = claim_player_batch(connection, row[0], worker)
+                    result = claim_player_batch(connection, row[0], worker, limit=body.limit)
                     if result:
                         return result
             return None
@@ -233,5 +247,3 @@ def fail(body: Failure, authorization: str | None = Header(default=None)):
         except OwnershipLost as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {'released': True}
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
