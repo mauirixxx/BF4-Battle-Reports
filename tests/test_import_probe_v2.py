@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-spec=importlib.util.spec_from_file_location('probe_import_v2','/var/tmp/bf4br-probe-import-v2.py')
+spec=importlib.util.spec_from_file_location('probe_import_v2',str(Path(__file__).resolve().parents[1] / 'tools' / 'import_probe_v2.py'))
 mod=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
