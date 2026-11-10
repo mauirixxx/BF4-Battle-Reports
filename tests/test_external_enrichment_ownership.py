@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch
-from bf4br.external_enrichment_ownership import OwnershipLost, save_owned, renew_owned, retry_owned
+from bf4br.external_enrichment_ownership import OwnershipLost, save_owned, renew_owned, retry_owned, acknowledge_saved
 
 
 class Cursor:
@@ -35,9 +35,24 @@ class OwnershipTests(unittest.TestCase):
     def test_renew(self, renew):
         renew_owned(Conn((1,)),(1,20,30),'token','worker')
         renew.assert_called_once()
+    def test_ack_accepts_battlelog_string_report_id(self):
+        conn=Conn((1,))
+        payload={'id':'1792536478803219968','platform':1,
+                 'players':{'994365084':{}},
+                 'playerReport':{'personaId':'994365084','stats':{}}}
+        self.assertTrue(acknowledge_saved(conn,(1,1792536478803219968,994365084),
+                                          'token','worker','batch',payload))
+
+    def test_ack_rejects_wrong_report_id(self):
+        conn=Conn((1,))
+        payload={'id':'1792536478803219969','platform':1,
+                 'players':{'994365084':{}},
+                 'playerReport':{'personaId':'994365084','stats':{}}}
+        with self.assertRaisesRegex(ValueError,'identity mismatch'):
+            acknowledge_saved(conn,(1,1792536478803219968,994365084),
+                              'token','worker','batch',payload)
+
     @patch('bf4br.external_enrichment_ownership.retry_player',return_value=True)
     def test_retry(self, retry):
         retry_owned(Conn((1,)),(1,20,30),'token','worker','failed',1200)
         retry.assert_called_once()
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
