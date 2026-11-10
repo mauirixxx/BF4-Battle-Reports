@@ -95,4 +95,10 @@ The first actual ASGI HTTP test exposed an issue with BaseHTTPMiddleware consumi
 
 This is **in-process ASGI HTTP** through FastAPI's TestClient, not a listening network service. The API remains undeployed and migration 0009 remains scratch-only. Remaining deployment prerequisites: dedicated API PostgreSQL role and grants, isolated runtime environment, network/Apache proxy validation, worker client implementation, lease/resume edge cases, and operational rollout checks.
 
+## Minimal deployment preparation (2026-11-09)
+
+Created a dedicated `/opt/bf4br-external-api/.venv` on reports, installed API requirements, and started a temporary Uvicorn process on `127.0.0.1:18765` with `BF4BR_DSN` pointing to **scratch only**. Real curl over TCP returned health 200, no-key claim 401 and invalid-key claim 401. This is not production deployment. The temporary listener was stopped after testing.
+
+Prepared but **did not install** `deploy/bf4br-external-api.service`, `deploy/bf4br-external-api-apache.conf`, and `deploy/bf4br-external-api-db-grants.sql`. The service template uses a dedicated OS account and environment file. Apache template is for the existing `tcou` vhost and would require binding Uvicorn to the reports private interface plus firewall restriction to tcou. The SQL is a reviewed-grants starting point, not an executed migration: create `bf4br_api` without inheriting collector privileges and verify the exact permissions against the production schema before use. No production DB migrations, grants, Apache edits or systemd changes have been made.
+
 [executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]

@@ -1,0 +1,23 @@
+[Unit]
+Description=BF4BR External Player Enrichment API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bf4br-api
+Group=bf4br-api
+WorkingDirectory=/opt/bf4br-external-api
+EnvironmentFile=/etc/bf4br-external-api.env
+ExecStart=/opt/bf4br-external-api/.venv/bin/uvicorn bf4br.external_enrichment_api:app --host 127.0.0.1 --port 18765 --no-access-log
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+
+[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
