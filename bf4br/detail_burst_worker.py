@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import time
+from threading import Event
 from datetime import datetime, timezone
 
 from bf4br import node_cooldown
@@ -18,6 +19,8 @@ from bf4br.detail_queue import claim_player, renew_player, retry_player, save_pl
 from bf4br.retry import retry_delay, retry_after_seconds
 
 LOG = logging.getLogger(__name__)
+RETRY_DELAYS = (5, 10, 20, 30)
+BURST_LEASE_SECONDS = 240
 
 
 def _publish_429(result):
@@ -77,20 +80,43 @@ def process_batch(conn, worker, *, stopped=lambda: False, fetcher=fetch_detail,
             # Claim on demand as HTTP slots open, rather than leasing 40
             # players before their requests can begin. This keeps each
             # 120-second lease fresh even if a batch runs for minutes.
+            rate_limited = Event()
+
             def claims():
                 for _ in range(min(batch_size, 40)):
                     if stopped():
                         return
-                    item = claim_player(conn, worker)
+                    item = claim_player(conn, worker, lease_seconds=BURST_LEASE_SECONDS)
                     if item is None:
                         return
                     job, token = item
-                    if renew_player(conn, job, token):
+                    if renew_player(conn, job, token, seconds=BURST_LEASE_SECONDS):
                         yield item
 
             def fetch(item):
                 job, _ = item
-                return fetcher(*job)
+                result = None
+                for attempt in range(5):
+                    if attempt and (stopped() or rate_limited.is_set()):
+                        break
+                    try:
+                        result = fetcher(*job)
+                    except (OSError, TimeoutError, ValueError) as exc:
+                        result = (0, None, str(exc), None)
+                    status, payload, error, hint = result
+                    if status == 429:
+                        rate_limited.set()
+                        return result
+                    if status == 200 and isinstance(payload, dict):
+                        return result
+                    if attempt < len(RETRY_DELAYS):
+                        # Check shutdown and 429 during the delay, not just after it.
+                        deadline = time.monotonic() + RETRY_DELAYS[attempt]
+                        while time.monotonic() < deadline:
+                            if stopped() or rate_limited.is_set():
+                                return result
+                            time.sleep(min(0.25, deadline - time.monotonic()))
+                return result
 
             def handle(item, result):
                 job, token = item
