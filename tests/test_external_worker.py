@@ -97,6 +97,26 @@ class ExternalWorkerTests(unittest.TestCase):
             with patch.object(worker, "run_batch", side_effect=worker.APIError(401, "unauthorized")):
                 self.assertEqual(worker.main(["--key-file", secret.name]), 3)
 
+    def test_retry_null_then_success(self):
+        item = {"report_id": 17}
+        with patch.object(worker, "fetch_detail", side_effect=[(200, None, None, None), (200, {"id": 17}, None, None)]), patch.object(worker.time, "sleep") as sleeper:
+            result = worker.request_detail(1, 99, item)
+        self.assertEqual(result[2], {"id": 17})
+        sleeper.assert_called_once_with(5)
+
+    def test_five_null_attempts_then_deferral(self):
+        with patch.object(worker, "fetch_detail", return_value=(200, None, None, None)) as fetch, patch.object(worker.time, "sleep") as sleeper:
+            result = worker.request_detail(1, 99, {"report_id": 17})
+        self.assertIsNone(result[2])
+        self.assertEqual(fetch.call_count, 5)
+        self.assertEqual([c.args[0] for c in sleeper.call_args_list], [5, 10, 20, 30])
+
+    def test_429_does_not_retry(self):
+        with patch.object(worker, "fetch_detail", return_value=(429, None, "limited", "61")) as fetch:
+            result = worker.request_detail(1, 99, {"report_id": 17})
+        self.assertEqual(result[1], 429)
+        fetch.assert_called_once()
+
     def test_retry_after(self):
         self.assertEqual(worker.retry_after_seconds("180"), 180)
         self.assertEqual(worker.retry_after_seconds(None), 0)
