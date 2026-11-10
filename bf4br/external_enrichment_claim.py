@@ -30,7 +30,12 @@ def claim_player_batch(conn, player_id: int, worker: str, *, limit: int = MAX_RE
     claimed = []
     with conn.transaction():
         with conn.cursor() as cur:
-            cur.execute('SELECT platform,persona_id FROM players WHERE id=%s FOR UPDATE SKIP LOCKED', (player_id,))
+            # Transaction-scoped advisory lock serializes external claims without
+            # requiring UPDATE privileges on the source players table.
+            cur.execute('SELECT pg_try_advisory_xact_lock(%s)', (player_id,))
+            if not cur.fetchone()[0]:
+                return None
+            cur.execute('SELECT platform,persona_id FROM players WHERE id=%s', (player_id,))
             player = cur.fetchone()
             if not player:
                 return None
@@ -93,5 +98,3 @@ def claim_player_batch(conn, player_id: int, worker: str, *, limit: int = MAX_RE
     if not claimed:
         return None
     return Reservation(platform,persona,tuple(x[0] for x in claimed),tuple(x[1] for x in claimed))
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
