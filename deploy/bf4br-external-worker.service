@@ -1,0 +1,24 @@
+[Unit]
+Description=BF4BR External Player Enrichment Worker
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/bf4br-external-worker
+ExecStart=/usr/bin/python3 -m bf4br.external_worker --concurrency 4 --key-file /root/bf4br-external-worker.key
+Restart=on-failure
+RestartPreventExitStatus=3
+RestartSec=61
+TimeoutStopSec=35
+KillSignal=SIGTERM
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true
+ProtectHome=read-only
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
