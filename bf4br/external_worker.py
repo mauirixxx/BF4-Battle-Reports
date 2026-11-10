@@ -48,16 +48,33 @@ def retry_after_seconds(value):
             return 0
 
 
+RETRY_DELAYS = (5, 10, 20, 30)
+
+
 def request_detail(platform, persona, item):
-    status, payload, error, retry_after = fetch_detail(platform, item["report_id"], persona)
+    for attempt in range(1, 6):
+        status, payload, error, retry_after = fetch_detail(platform, item["report_id"], persona)
+        if status == 200 and isinstance(payload, dict):
+            return item, status, payload, error, retry_after
+        if status == 429:
+            return item, status, payload, error, retry_after
+        if attempt < 5:
+            delay = RETRY_DELAYS[attempt - 1]
+            LOG.warning("Report %s attempt %d/5: HTTP %s (%s); retry in %ds",
+                        item["report_id"], attempt, status, error or type(payload).__name__, delay)
+            time.sleep(delay)
     return item, status, payload, error, retry_after
 
 
-def run_batch(base, key, *, concurrency=4):
-    claim = api_post(base, key, "work/claim", {})
+def run_batch(base, key, *, concurrency=4, persona=None, limit=40):
+    request = {"limit": limit}
+    if persona is not None:
+        request.update({"platform": persona[0], "persona_id": persona[1]})
+    claim = api_post(base, key, "work/claim", request)
     if not claim.get("batch_id"):
         LOG.info("No eligible work returned")
-        return {"claimed": 0, "stored": 0, "failed": 0, "rate_limited": False}
+        return {"claimed": 0, "stored": 0, "failed": 0, "rate_limited": False,
+                "persona": persona}
     batch = claim["batch_id"]
     platform, persona = claim["platform"], claim["persona_id"]
     items = claim["reports"]
@@ -146,7 +163,8 @@ def run_batch(base, key, *, concurrency=4):
         LOG.exception("Batch interrupted; remaining leases will expire if not settled")
         raise
     return {"claimed": len(items), "stored": stored, "failed": failed,
-            "rate_limited": limited, "last_request": last_battlelog}
+            "rate_limited": limited, "last_request": last_battlelog,
+            "persona": (platform, persona)}
 
 
 def main(argv=None):
@@ -161,9 +179,12 @@ def main(argv=None):
     if not key:
         parser.error("API key file is empty")
     backoff = 15
+    persona = None
+    successes = 0
     while True:
         try:
-            result = run_batch(args.api_url, key, concurrency=args.concurrency)
+            result = run_batch(args.api_url, key, concurrency=args.concurrency,
+                               persona=persona, limit=40-successes)
         except APIError as exc:
             if args.once:
                 raise
@@ -186,6 +207,15 @@ def main(argv=None):
             backoff = min(300, backoff * 2)
             continue
         backoff = 15
+        if result["claimed"]:
+            persona = result["persona"]
+            successes += result["stored"]
+            LOG.info("Persona %s: %d/40 successful enrichments", persona, successes)
+        if successes >= 40 or result["claimed"] == 0 or result["rate_limited"]:
+            if persona is not None:
+                LOG.info("Persona %s finished: %d successful enrichments", persona, successes)
+            persona = None
+            successes = 0
         if args.once:
             return 0
         # The API persists the cooldown from the batch-completion acknowledgement.
