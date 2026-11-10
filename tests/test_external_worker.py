@@ -55,6 +55,27 @@ class ExternalWorkerTests(unittest.TestCase):
         self.assertEqual([name for name, _ in calls].count("work/rate-limited"), 1)
         self.assertEqual(calls[-1][0], "work/complete")
 
+    def test_http_200_non_object_is_logged_and_released(self):
+        claim = {"batch_id": "batch-1", "platform": 1, "persona_id": 99,
+                 "reports": [{"report_id": 7, "token": "token-7"}]}
+        calls = []
+
+        def api(base, key, route, payload):
+            calls.append((route, payload))
+            return claim if route == "work/claim" else {}
+
+        def fetch(platform, persona, item):
+            return item, 200, [], None, None
+
+        with patch.object(worker, "api_post", side_effect=api), patch.object(
+            worker, "request_detail", side_effect=fetch
+        ), self.assertLogs("bf4br.external_worker", level="WARNING") as captured:
+            result = worker.run_batch("https://example.invalid", "secret", concurrency=1)
+        self.assertEqual(result["failed"], 1)
+        self.assertEqual([name for name, _ in calls].count("enrichment"), 0)
+        self.assertIn("unexpected JSON type: list", captured.output[0])
+        self.assertIn("unexpected JSON type: list", next(body["reason"] for name, body in calls if name == "work/fail"))
+
     def test_retry_after(self):
         self.assertEqual(worker.retry_after_seconds("180"), 180)
         self.assertEqual(worker.retry_after_seconds(None), 0)
