@@ -105,4 +105,10 @@ Prepared but **did not install** `deploy/bf4br-external-api.service`, `deploy/bf
 
 Production `bf4_battle_reports` migration 0009 was applied successfully with `ON_ERROR_STOP=1`; three new tables, indexes and constraints created. PostgreSQL login role `bf4br_api` created without elevated role/database privileges; reviewed `deploy/bf4br-external-api-db-grants.sql` applied. Read-only verification confirmed tables owned by postgres and the restricted login role. The OS account creation command was blocked by remote command policy, so no systemd service or live API endpoint was enabled; the prepared unit template was corrected to use `bf4br_api` as the OS user/group. Existing collectors unchanged. Before startup, verify peer/local DB authentication for the OS account and configure the service environment; then validate proxy and a single worker.
 
+## Live API service and HTTPS routing (2026-11-10 UTC)
+
+The Linux `bf4br_api` account was created by the administrator (UID 106/GID 107, nologin). Peer-authenticated PostgreSQL access as `bf4br_api` was verified. Installed `/etc/bf4br-external-api.env` (mode 0600) containing `BF4BR_DSN=dbname=bf4_battle_reports user=bf4br_api`; installed and enabled `bf4br-external-api.service` running the dedicated Python virtualenv on `127.0.0.1:18765`. Verified local health 200 and unauthorized claim 401. No external worker keys have been registered.
+
+Rather than opening port 18765 to the LAN or changing tcou's existing proxy, enabled `proxy` and `proxy_http` on reports Apache and added `/api/` reverse proxy to `127.0.0.1:18765/api/` in the existing default port-80 vhost. Backed up original config to `000-default.conf.bf4br-api-backup`. Apache syntax test passed and reload succeeded. The existing tcou HTTPS reverse proxy forwards the path unchanged. Verified from tcou `https://reports.bf4playerstats.com/api/v1/health` HTTP 200 and archive `/battle-reports.php` HTTP 200. This exposes the unauthenticated health endpoint; work mutations still require a registered bearer token. No production external claims were issued.
+
 [executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
