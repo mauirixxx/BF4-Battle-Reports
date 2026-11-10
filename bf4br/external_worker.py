@@ -160,22 +160,37 @@ def main(argv=None):
     key = Path(args.key_file).read_text().strip()
     if not key:
         parser.error("API key file is empty")
+    backoff = 15
     while True:
-        started = time.monotonic()
         try:
             result = run_batch(args.api_url, key, concurrency=args.concurrency)
         except APIError as exc:
+            if args.once:
+                raise
+            if exc.status in (401, 403):
+                LOG.error("Worker authorization rejected; stopping rather than retrying")
+                return 3
             if exc.status in (409, 429):
-                LOG.warning("Server cooldown/busy: %s", exc)
-                if args.once:
-                    return 2
+                LOG.warning("Server cooldown or active batch: %s; waiting 61 seconds", exc)
                 time.sleep(61)
                 continue
-            raise
+            LOG.exception("API failure; waiting %d seconds before retry", backoff)
+            time.sleep(backoff)
+            backoff = min(300, backoff * 2)
+            continue
+        except (OSError, TimeoutError, ValueError) as exc:
+            if args.once:
+                raise
+            LOG.warning("Temporary API/transport failure: %s; retry in %d seconds", exc, backoff)
+            time.sleep(backoff)
+            backoff = min(300, backoff * 2)
+            continue
+        backoff = 15
         if args.once:
             return 0
-        # Server cooldown begins on completion, so never claim earlier than that.
-        time.sleep(max(61, 61 - (time.monotonic() - started)))
+        # The API persists the cooldown from the batch-completion acknowledgement.
+        # Extra waiting also prevents tight loops when no work is available.
+        time.sleep(61)
 
 
 if __name__ == "__main__":
