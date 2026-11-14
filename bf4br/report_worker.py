@@ -7,7 +7,7 @@ import time
 import psycopg
 from bf4br.queue import claim,renew,release
 from bf4br.report_fetch import fetch,fetch_with_headers
-from bf4br.node_cooldown import guarded_request,wait_until_clear
+from bf4br.node_cooldown import guarded_request,wait_until_clear,mark_report_waiting,clear_report_waiting
 from bf4br.report_store import archive,recover
 from bf4br.report_import import import_archived
 
@@ -89,9 +89,15 @@ def main():
     worker=os.environ.get("BF4BR_WORKER_ID",f"report-{os.getpid()}")
     with psycopg.connect(os.environ["BF4BR_DSN"],autocommit=True) as conn:
         while not STOP:
-            wait_until_clear()
+            mark_report_waiting()
+            try:
+                wait_until_clear(sleeper=lambda seconds: (mark_report_waiting(), time.sleep(seconds)))
+            except BaseException:
+                clear_report_waiting()
+                raise
             claimed=claim(conn,"report",worker,120,platform=int(os.environ["BF4BR_PLATFORM"]) if os.environ.get("BF4BR_PLATFORM") else None)
             if claimed is None:
+                clear_report_waiting()
                 time.sleep(3)
                 continue
             job,token=claimed
@@ -103,8 +109,12 @@ def main():
                     release(conn,"report",*job,token,delay_seconds=1200,error=str(exc)[:160])
                 except Exception:
                     LOG.exception("report lease release failed")
+            clear_report_waiting()
             if not STOP:
                 time.sleep(10)
 
 if __name__=="__main__":
     main()
+✅ Process 2695666 has finished execution
+
+[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
