@@ -65,8 +65,10 @@ def process_batch(conn, worker, *, stopped=lambda: False, fetcher=fetch_detail,
                 interval, _ = node_cooldown.policy_values()
                 remaining = max(float(state.get('until_epoch', 0)) - time.time(),
                                 float(state.get('last_request_epoch', 0)) + interval - time.time())
-                if remaining <= 0:
+                if remaining <= 0 and not node_cooldown.report_is_waiting():
                     break
+                if remaining <= 0:
+                    remaining = 1.0
             finally:
                 if remaining > 0:
                     fcntl.flock(lock, fcntl.LOCK_UN)
