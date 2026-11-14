@@ -82,3 +82,26 @@ def wait_until_clear(sleeper=time.sleep):
         if remaining <= 0:
             return
         sleeper(min(remaining, 5))
+
+
+def report_wait_marker():
+    """Node-local request intent; never a lease or a rate-limit bypass."""
+    return STATE.with_name(STATE.name + '.report-waiting')
+
+def mark_report_waiting():
+    marker = report_wait_marker()
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+
+def clear_report_waiting():
+    try:
+        report_wait_marker().unlink()
+    except FileNotFoundError:
+        pass
+
+def report_is_waiting():
+    """Ignore stale markers from crashed workers after 30 seconds."""
+    try:
+        return time.time() - report_wait_marker().stat().st_mtime < 30
+    except OSError:
+        return False
