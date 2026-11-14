@@ -60,7 +60,7 @@ if($id!==''){
  $params=[];$where=' WHERE 1=1';
  if($p!=='all'){$params[]=$p;$where.=' AND r.platform=$'.count($params);}
  if($person!==''){$params[]=$person;$where.=' AND EXISTS(SELECT 1 FROM report_players rp JOIN players pl ON pl.id=rp.player_id WHERE rp.report_id=r.id AND pl.persona_id=$'.count($params).')';}
- if($playerSearch!==''){$params[]=$playerSearch;$where.=' AND r.id IN (SELECT rp.report_id FROM report_players rp JOIN players pl ON pl.id=rp.player_id WHERE (strpos(lower(pl.current_name),lower($'.count($params).'))>0 OR strpos(lower(rp.player_name_observed),lower($'.count($params).'))>0))';}
+ if($playerSearch!==''){$params[]=str_replace(['!','%','_'],['!!','!%','!_'],$playerSearch);$slot='$'.count($params);$where.=" AND r.id IN (SELECT rp.report_id FROM report_players rp JOIN players pl ON pl.id=rp.player_id WHERE (lower(pl.current_name) LIKE '%' || lower($slot) || '%' ESCAPE '!' OR lower(rp.player_name_observed) LIKE '%' || lower($slot) || '%' ESCAPE '!'))";}
  if($serverSearch!==''){$params[]=$serverSearch;$where.=' AND strpos(lower(s.current_name),lower($'.count($params).')) > 0';}
  if($dateFilter!==''){$params[]=$dateFilter;$where.=' AND r.report_timestamp >= $'.count($params).'::date AND r.report_timestamp < ($'.count($params)."::date + interval '1 day')";}
  if($mapFilter!=='all'){$params[]=$mapFilter;$where.=" AND d.report_json->'gameServer'->>'map'=$".count($params);}
