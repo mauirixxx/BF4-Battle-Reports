@@ -21,6 +21,12 @@ def process_one(conn,job,token,fetcher=fetch,sleeper=time.sleep):
     platform,rid=job
     if not renew(conn,"report",platform,rid,token,120):
         raise RuntimeError("lease lost")
+    def keep_lease_alive():
+        if STOP:
+            raise InterruptedError("report shutdown")
+        if not renew(conn,"report",platform,rid,token,120):
+            raise RuntimeError("lease lost while waiting for request gate")
+
     saved=recover(conn,platform,rid)
     if saved is None:
         for attempt in range(3):
@@ -33,7 +39,7 @@ def process_one(conn,job,token,fetcher=fetch,sleeper=time.sleep):
                 if fetcher is fetch:
                     status,payload,error,hint=guarded_request(
                         lambda:fetch_with_headers(platform,rid),lambda r:r[0],lambda r:r[3],
-                        on_wait=lambda: (_ for _ in ()).throw(InterruptedError("report shutdown")) if STOP else None)
+                        on_wait=keep_lease_alive)
                 else:
                     status,payload,error=fetcher(platform,rid)
             except InterruptedError:
@@ -53,6 +59,7 @@ def process_one(conn,job,token,fetcher=fetch,sleeper=time.sleep):
                 return 'rate_limited'
             if attempt<2:
                 base=min(60,2*(2**attempt))
+                keep_lease_alive()
                 sleeper(random.uniform(base*.5,base*1.5))
         else:
             release(conn,"report",platform,rid,token,delay_seconds=1200,
@@ -97,7 +104,7 @@ def main():
                 except Exception:
                     LOG.exception("report lease release failed")
             if not STOP:
-                time.sleep(5)
+                time.sleep(10)
 
 if __name__=="__main__":
     main()
