@@ -62,5 +62,3 @@ class RateLimitTests(unittest.TestCase):
         from bf4br.external_enrichment_batch import record_rate_limit
         conn=Conn([('other',)])
         with self.assertRaises(BatchBusy): record_rate_limit(conn,'worker','batch')
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
