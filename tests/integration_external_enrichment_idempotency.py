@@ -30,5 +30,3 @@ def main():
             assert c.fetchone()[0]==1
     print('PASS: completed-batch duplicate ACK, changed-payload rejection, foreign-worker rejection, no duplicate raw rows')
 if __name__=='__main__': main()
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
