@@ -40,5 +40,3 @@ def main():
             assert r.status_code==413,(r.status_code,r.text)
     print('PASS: HTTP duplicate ACK 200, altered payload 409, bad key 401, oversized body 413')
 if __name__=='__main__':main()
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
