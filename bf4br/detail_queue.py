@@ -13,8 +13,10 @@ def seed_reports(conn, limit=500):
     with conn.transaction():
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO bf4br_detail_reports(platform,battlelog_report_id,report_timestamp)
-                SELECT r.platform,r.battlelog_report_id,r.report_timestamp
+                INSERT INTO bf4br_detail_reports(platform,battlelog_report_id,report_timestamp,manual_priority)
+                SELECT r.platform,r.battlelog_report_id,r.report_timestamp,
+                       EXISTS (SELECT 1 FROM bf4br_manual_report_requests m
+                               WHERE m.platform=r.platform AND m.battlelog_report_id=r.battlelog_report_id)
                 FROM battle_reports r
                 WHERE NOT EXISTS (
                     SELECT 1 FROM bf4br_detail_reports d
