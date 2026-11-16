@@ -1234,3 +1234,7 @@ ALTER TABLE ONLY public.report_players
 
 
 ```
+
+## Planned v2.1.4 migration (NOT applied)
+
+`migrations/0010_manual_report_priority.sql` is staged on `main`, **not deployed**. It proposes `bf4br_report_jobs.manual_priority` and `bf4br_detail_reports.manual_priority` (boolean, default false), plus `bf4br_manual_report_requests` keyed by `(platform, battlelog_report_id)` with optional `requested_persona_id`, request timestamps, and `request_count`. These objects are **not part of the production DDL snapshot above**. Before applying, verify against all migrations `0001`–`0009`, test queue compatibility, and regenerate the live schema snapshot after rollout.
