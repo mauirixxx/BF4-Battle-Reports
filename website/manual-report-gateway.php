@@ -6,7 +6,7 @@ header('X-Content-Type-Options: nosniff');
 function respond(int $status,array $data):never {http_response_code($status);echo json_encode($data);exit;}
 $host=strtolower($_SERVER['HTTP_HOST']??'');
 if($host!=='reports.bf4playerstats.com')respond(403,['error'=>'host']);
-if(empty($_SERVER['HTTPS'])||$_SERVER['HTTPS']==='off')respond(403,['error'=>'https_required']);
+if((empty($_SERVER['HTTPS'])||$_SERVER['HTTPS']==='off') && ($_SERVER['HTTP_X_FORWARDED_PROTO']??'')!=='https')respond(403,['error'=>'https_required']);
 session_name('BF4BR_MANUAL');
 session_set_cookie_params(['lifetime'=>0,'path'=>'/','secure'=>true,'httponly'=>true,'samesite'=>'Strict']);
 session_start();
