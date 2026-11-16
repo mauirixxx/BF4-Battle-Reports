@@ -52,6 +52,8 @@ def submit(conn, url):
                 return 'enrichment_prioritized'
             cur.execute('''INSERT INTO bf4br_report_jobs(platform,battlelog_report_id,manual_priority)
                 VALUES (%s,%s,true) ON CONFLICT(platform,battlelog_report_id)
-                DO UPDATE SET manual_priority=true,updated_at=now()
-                WHERE bf4br_report_jobs.state <> 'done' ''', (platform, report))
+                DO UPDATE SET manual_priority=true,
+                    state=CASE WHEN bf4br_report_jobs.state='done' THEN 'ready' ELSE bf4br_report_jobs.state END,
+                    next_attempt_at=CASE WHEN bf4br_report_jobs.state='done' THEN now() ELSE bf4br_report_jobs.next_attempt_at END,
+                    updated_at=now() ''', (platform, report))
             return 'generic_prioritized'
