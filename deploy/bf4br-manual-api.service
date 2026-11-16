@@ -1,0 +1,18 @@
+[Unit]
+Description=BF4BR private manual report submission API
+After=network.target postgresql.service
+[Service]
+Type=simple
+User=postgres
+Group=postgres
+WorkingDirectory=/opt/bf4br-external-api
+EnvironmentFile=/etc/bf4br-manual.env
+ExecStart=/opt/bf4br-external-api/.venv/bin/uvicorn bf4br.manual_report_api:app --host 127.0.0.1 --port 8794 --workers 1
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target
