@@ -53,7 +53,7 @@ def activate(conn, max_active=2):
                     return None
             cur.execute("""SELECT platform,battlelog_report_id FROM bf4br_detail_reports
                 WHERE state IN ('pending','deferred') AND retry_after<=now()
-                ORDER BY report_timestamp DESC,platform,battlelog_report_id DESC
+                ORDER BY manual_priority DESC,report_timestamp DESC,platform,battlelog_report_id DESC
                 FOR UPDATE SKIP LOCKED LIMIT 1""")
             report=cur.fetchone()
             if not report:
@@ -92,7 +92,7 @@ def claim_player(conn, worker, lease_seconds=120):
                 WHERE r.state='active'
                   AND ((p.state IN ('ready','retry') AND p.next_attempt_at<=now())
                     OR (p.state='leased' AND p.lease_until<now()))
-                ORDER BY r.report_timestamp DESC,p.persona_id FOR UPDATE OF p SKIP LOCKED LIMIT 1
+                ORDER BY r.manual_priority DESC,r.report_timestamp DESC,p.persona_id FOR UPDATE OF p SKIP LOCKED LIMIT 1
             ) UPDATE bf4br_detail_players p
               SET state='leased',lease_owner=%s,lease_token=%s,
                   lease_until=now()+(%s * interval '1 second'),updated_at=now()
