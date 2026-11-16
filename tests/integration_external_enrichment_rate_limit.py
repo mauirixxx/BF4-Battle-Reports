@@ -26,5 +26,3 @@ def main():
             assert c.fetchone()[0], 'crash recovery shortened 429 cooldown'
     print('PASS: durable 300s 429, foreign-worker rejection, crash recovery preserves longer cooldown')
 if __name__=='__main__': main()
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
