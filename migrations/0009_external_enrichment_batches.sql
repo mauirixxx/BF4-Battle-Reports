@@ -44,5 +44,3 @@ ALTER TABLE bf4br_external_workers
  DEFERRABLE INITIALLY DEFERRED;
 -- Deliberately no grant to existing bf4br_collector: API uses a dedicated role.
 COMMIT;
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
