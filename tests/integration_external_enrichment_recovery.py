@@ -47,5 +47,3 @@ def main():
     print('PASS: coordinator active-roster invariant, expired lease crash recovery, durable cooldown, and reclaimed work')
 
 if __name__=='__main__': main()
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
