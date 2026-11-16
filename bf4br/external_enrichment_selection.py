@@ -79,5 +79,3 @@ def random_candidate(conn, *, attempts: int = 24, limit: int = MAX_REPORTS) -> C
         if reports:
             return Candidate(platform, persona_id, reports)
     return None
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
