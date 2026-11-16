@@ -1235,6 +1235,6 @@ ALTER TABLE ONLY public.report_players
 
 ```
 
-## Planned v2.1.4 migration (NOT applied)
+## v2.1.4 migration (applied 2026-11-16)
 
-`migrations/0010_manual_report_priority.sql` is staged on `main`, **not deployed**. It proposes `bf4br_report_jobs.manual_priority` and `bf4br_detail_reports.manual_priority` (boolean, default false), plus `bf4br_manual_report_requests` keyed by `(platform, battlelog_report_id)` with optional `requested_persona_id`, request timestamps, and `request_count`. These objects are **not part of the production DDL snapshot above**. Before applying, verify against all migrations `0001`–`0009`, test queue compatibility, and regenerate the live schema snapshot after rollout.
+`migrations/0010_manual_report_priority.sql` was applied on the reports production PostgreSQL 18 database on 2026-11-16. It proposes `bf4br_report_jobs.manual_priority` and `bf4br_detail_reports.manual_priority` (boolean, default false), plus `bf4br_manual_report_requests` keyed by `(platform, battlelog_report_id)` with optional `requested_persona_id`, request timestamps, and `request_count`. These objects were introduced after the production DDL snapshot above; the snapshot predates migration 0010. Regenerate the full production DDL snapshot after the v2.1.4 rollout. The dedicated `bf4br_manual` role has loopback-only password authentication and narrowly scoped table permissions.
