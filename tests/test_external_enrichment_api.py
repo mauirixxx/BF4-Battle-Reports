@@ -29,5 +29,3 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(client.post('/api/v1/work/claim',data=b'x'*(MAX_REQUEST_BYTES+1)).status_code,413)
         with patch('bf4br.external_enrichment_api.authenticate',side_effect=HTTPException(status_code=401)):
             self.assertEqual(client.post('/api/v1/work/claim',headers={'Authorization':'Bearer nope'},json={}).status_code,401)
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
