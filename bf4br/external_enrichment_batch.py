@@ -150,5 +150,3 @@ def record_rate_limit(conn, worker, batch_id, *, retry_after_seconds=180):
                 SET cooldown_until=GREATEST(cooldown_until,
                     now()+(%s * interval '1 second')),updated_at=now()
                 WHERE worker_id=%s''', (retry_after_seconds,worker))
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
