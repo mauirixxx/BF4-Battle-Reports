@@ -62,5 +62,3 @@ def main():
     print('PASS: 40 newest, concurrent worker exclusion, owner fencing, upload, incomplete batch refusal, retry release, completion, cooldown')
 
 if __name__=='__main__': main()
-
-[executed on device: reports (d4380674-2627-4f06-a351-173869e82fbe)]
