@@ -52,3 +52,21 @@ droplet needs its own registered worker identity, bearer key and IP allowlist.
   records a failure; fix the credentials or allowlist rather than bypassing it.
 - Batch completion cooldown begins at API acknowledgement, so the client also
   waits 61 seconds after each completed batch.
+
+## Unified fleet monitor (external workers)
+
+Migration `0012_external_worker_heartbeat.sql` adds nullable liveness and version
+fields to the existing external-worker registry. Apply on reports before deploying
+the new API service. The authenticated `POST /api/v1/work/heartbeat` endpoint
+accepts a short version string and updates only the caller's registered identity.
+The worker sends a heartbeat at startup and every 30 seconds, including while
+cooling down or waiting. The live monitor lists all registered workers in the
+existing fleet table. Heartbeats older than 90 seconds show Offline; active
+batch assignments show Working; server cooldowns show Cooldown; otherwise Idle.
+This is liveness of the client process, not proof Battlelog requests are succeeding.
+Never expose bearer tokens or key digests in the public monitor.
+
+Deployment order: migration -> API server code/restart -> website -> workers.
+Deploying workers before the endpoint/migration will log heartbeat warnings but
+does not change claim/submission behavior. Existing workers lacking heartbeats
+appear Offline until upgraded. No automatic schema migration is performed.
