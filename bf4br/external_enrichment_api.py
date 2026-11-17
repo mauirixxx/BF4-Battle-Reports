@@ -135,6 +135,21 @@ def health():
     return {'service': 'bf4br-enrichment-api', 'status': 'ready'}
 
 
+class WorkerHeartbeat(BaseModel):
+    version: str = Field(min_length=1, max_length=80)
+
+
+@app.post('/api/v1/work/heartbeat')
+def worker_heartbeat(body: WorkerHeartbeat, authorization: str | None = Header(default=None)):
+    worker = authenticate(authorization)
+    with database() as conn, conn.cursor() as cur:
+        cur.execute('UPDATE bf4br_external_workers SET last_heartbeat_at=now(), worker_version=%s WHERE worker_id=%s AND enabled RETURNING worker_id',
+                    (body.version, worker))
+        if not cur.fetchone():
+            raise HTTPException(status_code=401, detail='unauthorized')
+    return {'status': 'ok'}
+
+
 @app.post('/api/v1/work/claim')
 def claim(body: ClaimRequest, authorization: str | None = Header(default=None)):
     worker = authenticate(authorization)
