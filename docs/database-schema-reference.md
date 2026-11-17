@@ -1238,3 +1238,12 @@ ALTER TABLE ONLY public.report_players
 ## v2.1.4 migration (applied 2026-11-16)
 
 `migrations/0010_manual_report_priority.sql` was applied on the reports production PostgreSQL 18 database on 2026-11-16. It proposes `bf4br_report_jobs.manual_priority` and `bf4br_detail_reports.manual_priority` (boolean, default false), plus `bf4br_manual_report_requests` keyed by `(platform, battlelog_report_id)` with optional `requested_persona_id`, request timestamps, and `request_count`. These objects were introduced after the production DDL snapshot above; the snapshot predates migration 0010. Regenerate the full production DDL snapshot after the v2.1.4 rollout. The dedicated `bf4br_manual` role has loopback-only password authentication and narrowly scoped table permissions.
+
+## External worker monitor telemetry — migration 0012
+
+`migrations/0012_external_worker_heartbeat.sql` adds nullable
+`last_heartbeat_at timestamptz` and `worker_version text` to
+`public.bf4br_external_workers`. The API authenticates each heartbeat by its
+existing bearer key and updates only that worker's row. No credentials are
+returned by the public monitor. Apply this migration before deploying the API
+heartbeat endpoint and updated external worker clients.
