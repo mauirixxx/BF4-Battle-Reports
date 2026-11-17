@@ -7,6 +7,7 @@ import json
 import logging
 from pathlib import Path
 import time
+import threading
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -178,6 +179,19 @@ def main(argv=None):
     key = Path(args.key_file).read_text().strip()
     if not key:
         parser.error("API key file is empty")
+    # Independent heartbeat keeps an idle/cooling-down worker visible.
+    # No database credentials or API keys are included in the payload.
+    heartbeat_stop = threading.Event()
+    def heartbeat_loop():
+        while not heartbeat_stop.is_set():
+            try:
+                api_post(args.api_url, key, 'work/heartbeat',
+                         {'version': 'external-worker/0.1'})
+            except (APIError, OSError, TimeoutError, ValueError) as exc:
+                LOG.warning('Heartbeat unavailable: %s', exc)
+            heartbeat_stop.wait(30)
+    threading.Thread(target=heartbeat_loop, name='bf4br-heartbeat',
+                     daemon=True).start()
     backoff = 15
     persona = None
     successes = 0
