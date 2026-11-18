@@ -53,8 +53,8 @@ body{font:16px system-ui,sans-serif;background:#0c121b;color:#e6edf4;margin:0}ma
 <form method="get" id="shared-form"><label>Platform<select name="platform" id="shared-platform"><?php foreach ($platforms as $key=>$num): ?><option value="<?=h($key)?>" <?=$platform===$key?'selected':''?>><?=h(['pc'=>'PC','ps4'=>'PlayStation','xboxone'=>'Xbox'][$key])?></option><?php endforeach; ?></select></label><label>Persona IDs (comma or space separated)<input name="ids" id="shared-ids" value="<?=h($input)?>" placeholder="236753552, 1007512245583" required></label><button type="submit">Find shared rounds</button></form>
 <?php if ($error): ?><p class="error"><?=h($error)?></p><?php elseif ($input!==''): ?><p><?=count($rows)?> shared imported reports found<?=count($rows)===200?' (first 200)':''?>.</p>
 <section><table><thead><tr><th>Battle report</th><th>Battlelog report created (UTC)</th><th>Server name</th><th>Matched players</th></tr></thead><tbody>
-<?php foreach($rows as $row): $url='https://battlelog.battlefield.com/bf4/battlereport/show/1/'.rawurlencode($row['battlelog_report_id']).'/'.$platform.'/'; ?>
-<tr><td><a href="<?=h($url)?>" target="_blank" rel="noopener noreferrer"><?=h($row['battlelog_report_id'])?></a></td><td><?=h($row['created_utc'])?></td><td><?=h($row['server_name'])?></td><td><?=h($row['matched'])?></td></tr>
+<?php foreach($rows as $row): $url='battle-reports.php?'.http_build_query(['report'=>$row['battlelog_report_id'],'platform'=>$platforms[$platform],'highlight'=>implode(',',$ids)]); ?>
+<tr><td><a href="<?=h($url)?>"><?=h($row['battlelog_report_id'])?></a></td><td><?=h($row['created_utc'])?></td><td><?=h($row['server_name'])?></td><td><?=h($row['matched'])?></td></tr>
 <?php endforeach; ?></tbody></table></section><?php endif; ?>
 <p><small>Searches imported reports only. Times are Battlelog report timestamps, not collection times. Server names reflect the currently stored server name.</small></p></main><?php bf4br_footer(); ?><script>
 (() => {
