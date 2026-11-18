@@ -4,6 +4,24 @@ header('X-Content-Type-Options: nosniff');
 function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 $platforms = ['pc'=>1,'ps4'=>32,'xboxone'=>64];
 $platform = (string)($_GET['platform'] ?? 'pc');
+// Lightweight indexed name lookup for the shared-round player picker.
+if (isset($_GET['lookup'])) {
+ header('Content-Type: application/json; charset=utf-8');
+ header('Cache-Control: no-store');
+ $term = trim((string)($_GET['lookup'] ?? ''));
+ $lookupPlatform = (string)($_GET['platform'] ?? '');
+ if (!isset($platforms[$lookupPlatform]) || strlen($term)<3 || strlen($term)>80) {
+  echo json_encode(['players'=>[]]); exit;
+ }
+ $dbLookup = pg_connect('dbname=bf4_battle_reports user=www-data');
+ if (!$dbLookup) { http_response_code(503); echo json_encode(['error'=>'Search unavailable']); exit; }
+ pg_query($dbLookup, "SET statement_timeout = '3000ms'");
+ $escaped = str_replace(['!','%','_'],['!!','!%','!_'],$term);
+ $resultLookup = pg_query_params($dbLookup, "SELECT persona_id,current_name FROM players WHERE platform=$1 AND lower(current_name) LIKE '%' || lower($2) || '%' ESCAPE '!' ORDER BY CASE WHEN lower(current_name)=lower($3) THEN 0 WHEN lower(current_name) LIKE lower($4) || '%' ESCAPE '!' THEN 1 ELSE 2 END, length(current_name), current_name LIMIT 15", [$platforms[$lookupPlatform],$escaped,$term,$escaped]);
+ if (!$resultLookup) { http_response_code(503); echo json_encode(['error'=>'Search unavailable']); exit; }
+ echo json_encode(['players'=>pg_fetch_all($resultLookup) ?: []], JSON_INVALID_UTF8_SUBSTITUTE);
+ exit;
+}
 $input = trim((string)($_GET['ids'] ?? ''));
 $error = '';
 $rows = [];
@@ -29,12 +47,63 @@ if ($input !== '') {
 ?><!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BF4 Shared Battle Reports</title><style>
-body{font:16px system-ui,sans-serif;background:#0c121b;color:#e6edf4;margin:0}main{max-width:1100px;margin:auto}h1{font-size:1.9rem}p{color:#b9c8d7}form{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:24px 0}label{display:flex;flex-direction:column;gap:6px}input,select,button{font:inherit;padding:11px;border-radius:7px;border:1px solid #51647a}input{min-width:300px;flex:1}button{background:#f39b3d;color:#151515;font-weight:700;cursor:pointer}table{border-collapse:collapse;width:100%}th,td{text-align:left;border-bottom:1px solid #34485a;padding:12px;vertical-align:top}th{color:#aabed1}a{color:#89c8ff}section{overflow-x:auto}.error{color:#ff9a9a}small{color:#aebdcc}
+body{font:16px system-ui,sans-serif;background:#0c121b;color:#e6edf4;margin:0}main{max-width:1100px;margin:auto}h1{font-size:1.9rem}p{color:#b9c8d7}form{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:24px 0}label{display:flex;flex-direction:column;gap:6px}input,select,button{font:inherit;padding:11px;border-radius:7px;border:1px solid #51647a}input{min-width:300px;flex:1}button{background:#f39b3d;color:#151515;font-weight:700;cursor:pointer}table{border-collapse:collapse;width:100%}th,td{text-align:left;border-bottom:1px solid #34485a;padding:12px;vertical-align:top}th{color:#aabed1}a{color:#89c8ff}section{overflow-x:auto}.error{color:#ff9a9a}small{color:#aebdcc}.picker{border:1px solid #34485a;background:#142233;border-radius:12px;padding:18px;margin:20px 0}.picker h2{margin:0 0 8px;font-size:1.2rem}.picker input{width:min(100%,460px);box-sizing:border-box}.picker-results{max-width:680px;margin-top:10px}.picker-result,.selected-player{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px;border-bottom:1px solid #34485a}.picker-result button,.selected-player button{padding:6px 12px}.picker-result small,.selected-player small{display:block}.selected-list{margin-top:10px;max-width:680px}.picker-status{min-height:1.5em;margin:8px 0;color:#b9c8d7}.picker button:disabled{opacity:.5;cursor:default}@media(max-width:650px){.picker-result,.selected-player{flex-wrap:wrap}input{min-width:0}}
 </style><link rel="stylesheet" href="bf4br-layout.css?v=1"></head><body><?php require_once __DIR__ . "/bf4br-layout.php"; bf4br_header("shared"); ?><main><h1>BF4 Shared Battle Reports</h1><p>Find imported rounds where <strong>all</strong> specified persona IDs played together.</p>
-<form method="get"><label>Platform<select name="platform"><?php foreach ($platforms as $key=>$num): ?><option value="<?=h($key)?>" <?=$platform===$key?'selected':''?>><?=h(['pc'=>'PC','ps4'=>'PlayStation','xboxone'=>'Xbox'][$key])?></option><?php endforeach; ?></select></label><label>Persona IDs (comma or space separated)<input name="ids" value="<?=h($input)?>" placeholder="236753552, 1007512245583" required></label><button type="submit">Find shared rounds</button></form>
+<div class="picker"><h2>Find players by name</h2><p>Search a name, add the correct Persona ID, then repeat. Up to 20 players on the same platform.</p><label for="player-lookup">Player name</label><input id="player-lookup" type="search" placeholder="Type at least 3 characters..." autocomplete="off" aria-describedby="lookup-status"><div id="lookup-status" class="picker-status" role="status" aria-live="polite"></div><div id="lookup-results" class="picker-results"></div><h2>Selected players <span id="selected-count">(0/20)</span></h2><div id="selected-list" class="selected-list"></div></div>
+<form method="get" id="shared-form"><label>Platform<select name="platform" id="shared-platform"><?php foreach ($platforms as $key=>$num): ?><option value="<?=h($key)?>" <?=$platform===$key?'selected':''?>><?=h(['pc'=>'PC','ps4'=>'PlayStation','xboxone'=>'Xbox'][$key])?></option><?php endforeach; ?></select></label><label>Persona IDs (comma or space separated)<input name="ids" id="shared-ids" value="<?=h($input)?>" placeholder="236753552, 1007512245583" required></label><button type="submit">Find shared rounds</button></form>
 <?php if ($error): ?><p class="error"><?=h($error)?></p><?php elseif ($input!==''): ?><p><?=count($rows)?> shared imported reports found<?=count($rows)===200?' (first 200)':''?>.</p>
 <section><table><thead><tr><th>Battle report</th><th>Battlelog report created (UTC)</th><th>Server name</th><th>Matched players</th></tr></thead><tbody>
 <?php foreach($rows as $row): $url='https://battlelog.battlefield.com/bf4/battlereport/show/1/'.rawurlencode($row['battlelog_report_id']).'/'.$platform.'/'; ?>
 <tr><td><a href="<?=h($url)?>" target="_blank" rel="noopener noreferrer"><?=h($row['battlelog_report_id'])?></a></td><td><?=h($row['created_utc'])?></td><td><?=h($row['server_name'])?></td><td><?=h($row['matched'])?></td></tr>
 <?php endforeach; ?></tbody></table></section><?php endif; ?>
-<p><small>Searches imported reports only. Times are Battlelog report timestamps, not collection times. Server names reflect the currently stored server name.</small></p></main><?php bf4br_footer(); ?></body></html>
+<p><small>Searches imported reports only. Times are Battlelog report timestamps, not collection times. Server names reflect the currently stored server name.</small></p></main><?php bf4br_footer(); ?><script>
+(() => {
+ const platform=document.getElementById('shared-platform'), ids=document.getElementById('shared-ids'), search=document.getElementById('player-lookup'), results=document.getElementById('lookup-results'), status=document.getElementById('lookup-status'), selectedList=document.getElementById('selected-list'), count=document.getElementById('selected-count');
+ const selected=new Map(); let timer,controller,sequence=0;
+ const validId=v=>/^\d{1,19}$/.test(v)&&!/^0+$/.test(v);
+ const parsed=()=>[...new Set(ids.value.split(/[\s,;]+/).filter(validId))];
+ function element(tag,text){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;return e;}
+ function renderSelected(){
+  selectedList.replaceChildren();count.textContent='('+parsed().length+'/20)';
+  for(const [id,name] of selected){
+   if(!parsed().includes(id)){selected.delete(id);continue;}
+   const row=element('div');row.className='selected-player';
+   const label=element('span',name+' ');label.append(element('small','Persona '+id));
+   const remove=element('button','Remove');remove.type='button';remove.addEventListener('click',()=>{selected.delete(id);ids.value=parsed().filter(v=>v!==id).join(', ');renderSelected();});
+   row.append(label,remove);selectedList.append(row);
+  }
+ }
+ ids.addEventListener('input',renderSelected);
+ platform.addEventListener('change',()=>{selected.clear();ids.value='';search.value='';results.replaceChildren();status.textContent='Platform changed. Previous selection cleared.';renderSelected();});
+ search.addEventListener('input',()=>{
+  clearTimeout(timer);if(controller)controller.abort();const seq=++sequence;results.replaceChildren();
+  const term=search.value.trim();
+  if(term.length<3){status.textContent='Enter at least 3 characters.';return;}
+  status.textContent='Searching...';
+  timer=setTimeout(async()=>{
+   controller=new AbortController();
+   try{
+    const url=new URL(window.location.href);url.search='';url.searchParams.set('lookup',term);url.searchParams.set('platform',platform.value);
+    const response=await fetch(url,{signal:controller.signal,headers:{'Accept':'application/json'}});
+    if(!response.ok)throw Error('Search unavailable');
+    const data=await response.json();if(seq!==sequence)return;
+    status.textContent=data.players.length?data.players.length+' matching players (maximum 15 shown).':'No matching players found.';
+    for(const player of data.players){
+     const id=String(player.persona_id);if(!validId(id))continue;
+     const row=element('div');row.className='picker-result';
+     const label=element('span',player.current_name);label.append(element('small','Persona '+id+' · '+platform.options[platform.selectedIndex].text));
+     const add=element('button',selected.has(id)||parsed().includes(id)?'Added':'Add player');add.type='button';add.disabled=selected.has(id)||parsed().includes(id);
+     add.addEventListener('click',()=>{
+      const current=parsed();
+      if(current.includes(id))return;
+      if(current.length>=20){status.textContent='Maximum 20 players.';return;}
+      selected.set(id,player.current_name);ids.value=[...current,id].join(', ');add.textContent='Added';add.disabled=true;renderSelected();
+     });
+     row.append(label,add);results.append(row);
+    }
+   }catch(err){if(err.name!=='AbortError'&&seq===sequence)status.textContent='Search temporarily unavailable.';}
+  },250);
+ });
+ renderSelected();
+})();
+</script></body></html>
