@@ -15,10 +15,10 @@ def main():
    if proc.stdout:print(proc.stdout.strip(),flush=True)
    if proc.returncode==0:break
    detail=proc.stderr.strip()
-   if ('LockNotAvailable' not in detail and 'lock timeout' not in detail.lower()) or attempt==5:
+   if not any(marker in detail for marker in ('LockNotAvailable', 'DeadlockDetected', 'lock timeout', 'deadlock detected')) or attempt==5:
     print('STOP: import batch failed:',detail,flush=True);return proc.returncode
    delay=(5,10,20,30,60)[attempt]
-   print('RETRY: transient lock timeout; batch rolled back; attempt',attempt+2,'of 6 in',delay,'seconds:',detail[:250],flush=True)
+   print('RETRY: transient database lock conflict; batch rolled back; attempt',attempt+2,'of 6 in',delay,'seconds:',detail[:250],flush=True)
    time.sleep(delay)
   if '"done": true' in proc.stdout:
    print('YEAR 2018 COMPLETE; no other years started',flush=True);return 0
